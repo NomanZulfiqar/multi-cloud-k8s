@@ -1,0 +1,129 @@
+name: AKS Deployment Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'aks/**'
+      - '.github/workflows/aks-pipeline.yml'
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'aks/**'
+      - '.github/workflows/aks-pipeline.yml'
+  workflow_dispatch: # Allows manual triggering
+
+env:
+  AZURE_RESOURCE_GROUP: aks-resource-group
+  AKS_CLUSTER_NAME: my-aks-cluster
+
+jobs:
+  terraform-plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./aks/terraform
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.0.0
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Format
+        run: terraform fmt -check
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
+        
+      - name: Upload Terraform Plan
+        uses: actions/upload-artifact@v3
+        with:
+          name: tfplan-aks
+          path: ./aks/terraform/tfplan
+          retention-days: 1
+
+  terraform-apply:
+    name: Terraform Apply
+    needs: terraform-plan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    defaults:
+      run:
+        working-directory: ./aks/terraform
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.0.0
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Download Terraform Plan
+        uses: actions/download-artifact@v3
+        with:
+          name: tfplan-aks
+          path: ./aks/terraform
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
+
+  deploy-kubernetes:
+    name: Deploy to Kubernetes
+    needs: terraform-apply
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Set AKS context
+        uses: azure/aks-set-context@v3
+        with:
+          resource-group: ${{ env.AZURE_RESOURCE_GROUP }}
+          cluster-name: ${{ env.AKS_CLUSTER_NAME }}
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'v3.8.0'
+
+      - name: Deploy Database
+        run: |
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm upgrade --install postgres bitnami/postgresql -f ./aks/helm-charts/database/postgres-values.yaml
+
+      - name: Deploy Application
+        run: |
+          helm upgrade --install myapp ./aks/helm-charts/application
