@@ -1,6 +1,11 @@
 resource "aws_elasticache_subnet_group" "cache_subnet_group" {
   name       = "cache-subnet-group"
   subnet_ids = module.vpc.public_subnets
+  
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes = [subnet_ids]
+  }
 }
 
 resource "aws_security_group" "elasticache_sg" {
