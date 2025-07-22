@@ -62,8 +62,11 @@ module "eks" {
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.public_subnets
   
-  # Skip creating the CloudWatch Log Group as it already exists
-  create_cloudwatch_log_group = false
+  # Create CloudWatch Log Group to avoid dependency cycle
+  create_cloudwatch_log_group = true
+  cloudwatch_log_group_retention_in_days = 7
+  cloudwatch_log_group_kms_key_id = ""
+  cluster_enabled_log_types = ["api", "audit"]
   
   # Prevent changes to existing resources
   cluster_timeouts = {
