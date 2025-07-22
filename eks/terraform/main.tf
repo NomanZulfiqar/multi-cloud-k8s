@@ -77,9 +77,8 @@ module "eks" {
     Name = "my-eks-cluster"
   }
   
-  # Keep existing IAM roles
-  manage_cluster_iam_resources = false
-  cluster_iam_role_name = "eks-cluster-role"
+  # Use IAM role settings compatible with this module version
+  iam_role_use_name_prefix = false
 
   # EKS Managed Node Group(s) - using t3.micro for lowest cost
   eks_managed_node_groups = {
