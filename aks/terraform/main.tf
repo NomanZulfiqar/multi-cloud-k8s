@@ -34,7 +34,7 @@ resource "azurerm_kubernetes_cluster" "this" {
     node_count     = var.node_count
     vm_size        = var.vm_size
     vnet_subnet_id = azurerm_subnet.this.id
-       
+    os_sku         = "Mariner"  # Using CBL-Mariner (Microsoft's Linux distribution)
   }
 
   identity {
