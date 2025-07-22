@@ -39,6 +39,12 @@ jobs:
         with:
           terraform_version: 1.0.0
 
+      - name: Make import script executable
+        run: chmod +x import-resources.sh
+
+      - name: Import existing resources
+        run: ./import-resources.sh
+
       - name: Terraform Init
         run: terraform init
 
