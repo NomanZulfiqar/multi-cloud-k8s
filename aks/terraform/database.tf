@@ -2,6 +2,17 @@ resource "azurerm_postgresql_flexible_server" "this" {
   name                = "aks-postgres-db"
   location            = azurerm_resource_group.this.location
   resource_group_name = azurerm_resource_group.this.name
+  zone                = "1"  # Specify the zone to match existing resource
+  
+  lifecycle {
+    ignore_changes = [
+      zone,
+      high_availability,
+      storage_mb,
+      administrator_login,
+      administrator_password
+    ]
+  }
 
   sku_name   = "B_Standard_B1ms"
   storage_mb = 32768
