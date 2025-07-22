@@ -2,6 +2,11 @@ resource "aws_db_subnet_group" "postgres" {
   name       = "postgres-subnet-group"
   subnet_ids = module.vpc.public_subnets  # Using public subnets for learning purposes
 
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes = [subnet_ids]
+  }
+  
   tags = {
     Name = "postgres-subnet-group"
   }

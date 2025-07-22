@@ -58,6 +58,9 @@ module "eks" {
 
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.public_subnets
+  
+  # Skip creating the CloudWatch Log Group as it already exists
+  create_cloudwatch_log_group = false
 
   # EKS Managed Node Group(s) - using t3.micro for lowest cost
   eks_managed_node_groups = {
