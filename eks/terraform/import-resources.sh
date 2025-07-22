@@ -4,78 +4,95 @@ set -e
 # Initialize Terraform
 terraform init
 
-# Import VPC resources if they exist
-echo "Checking for existing VPC resources..."
-VPC_ID=$(aws ec2 describe-vpcs --filters "Name=tag:Name,Values=eks-vpc" --query "Vpcs[0].VpcId" --output text 2>/dev/null || echo "")
-if [ "$VPC_ID" != "None" ] && [ -n "$VPC_ID" ]; then
-  echo "Found existing VPC: $VPC_ID"
-  terraform import module.vpc.aws_vpc.this[0] $VPC_ID || echo "VPC already imported or not found"
-  
-  # Import subnets
-  echo "Checking for existing subnets..."
-  SUBNET_IDS=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" --query "Subnets[*].SubnetId" --output text)
-  for SUBNET_ID in $SUBNET_IDS; do
-    SUBNET_NAME=$(aws ec2 describe-tags --filters "Name=resource-id,Values=$SUBNET_ID" "Name=key,Values=Name" --query "Tags[0].Value" --output text)
-    if [[ $SUBNET_NAME == *"public"* ]]; then
-      echo "Importing public subnet: $SUBNET_ID"
-      terraform import "module.vpc.aws_subnet.public[0]" $SUBNET_ID || echo "Subnet already imported or not found"
-    elif [[ $SUBNET_NAME == *"private"* ]]; then
-      echo "Importing private subnet: $SUBNET_ID"
-      terraform import "module.vpc.aws_subnet.private[0]" $SUBNET_ID || echo "Subnet already imported or not found"
-    fi
-  done
+# Create a state file backup
+if [ -f "terraform.tfstate" ]; then
+  cp terraform.tfstate terraform.tfstate.backup
 fi
 
-# Import EKS cluster if it exists
-echo "Checking for existing EKS cluster..."
-CLUSTER_EXISTS=$(aws eks describe-cluster --name my-eks-cluster --query "cluster.name" --output text 2>/dev/null || echo "")
-if [ "$CLUSTER_EXISTS" != "" ]; then
-  echo "Found existing EKS cluster: $CLUSTER_EXISTS"
-  terraform import module.eks.aws_eks_cluster.this[0] my-eks-cluster || echo "EKS cluster already imported or not found"
-  
-  # Import node groups
-  echo "Checking for existing node groups..."
-  NODE_GROUPS=$(aws eks list-nodegroups --cluster-name my-eks-cluster --query "nodegroups[*]" --output text 2>/dev/null || echo "")
-  for NG in $NODE_GROUPS; do
-    echo "Importing node group: $NG"
-    terraform import "module.eks.aws_eks_node_group.this[\"app_nodes\"]" my-eks-cluster:$NG || echo "Node group already imported or not found"
-  done
-fi
+# Modify the Terraform files to handle existing resources
+echo "Modifying resources to handle existing infrastructure..."
 
-# Import ElastiCache subnet group
-echo "Importing ElastiCache subnet group..."
-terraform import aws_elasticache_subnet_group.cache_subnet_group cache-subnet-group || echo "ElastiCache subnet group not found or already imported"
+# Modify ElastiCache subnet group resource
+cat > elasticache_temp.tf << 'EOF'
+resource "aws_elasticache_subnet_group" "cache_subnet_group" {
+  name       = "cache-subnet-group"
+  subnet_ids = module.vpc.public_subnets
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes = [subnet_ids]
+  }
+}
+EOF
 
-# Import ElastiCache cluster if it exists
-echo "Checking for existing ElastiCache clusters..."
-REDIS_EXISTS=$(aws elasticache describe-cache-clusters --query "CacheClusters[?CacheClusterId=='redis-cluster'].CacheClusterId" --output text 2>/dev/null || echo "")
-if [ -n "$REDIS_EXISTS" ]; then
-  echo "Found existing ElastiCache cluster: $REDIS_EXISTS"
-  terraform import aws_elasticache_cluster.redis $REDIS_EXISTS || echo "ElastiCache cluster already imported or not found"
-fi
+# Modify RDS subnet group resource
+cat > rds_temp.tf << 'EOF'
+resource "aws_db_subnet_group" "postgres" {
+  name       = "postgres-subnet-group"
+  subnet_ids = module.vpc.public_subnets
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes = [subnet_ids]
+  }
+  tags = {
+    Name = "postgres-subnet-group"
+  }
+}
+EOF
 
-# Import RDS DB subnet group
-echo "Importing RDS DB subnet group..."
-terraform import aws_db_subnet_group.postgres postgres-subnet-group || echo "RDS DB subnet group not found or already imported"
+# Modify CloudWatch Log Group in main.tf
+TEMP_FILE=$(mktemp)
+cat > $TEMP_FILE << 'EOF'
+module "eks" {
+  source  = "terraform-aws-modules/eks/aws"
+  version = "18.31.2"
 
-# Import RDS instances if they exist
-echo "Checking for existing RDS instances..."
-RDS_INSTANCES=$(aws rds describe-db-instances --query "DBInstances[?DBSubnetGroup.DBSubnetGroupName=='postgres-subnet-group'].DBInstanceIdentifier" --output text 2>/dev/null || echo "")
-for RDS_INSTANCE in $RDS_INSTANCES; do
-  echo "Found existing RDS instance: $RDS_INSTANCE"
-  terraform import aws_db_instance.postgres $RDS_INSTANCE || echo "RDS instance already imported or not found"
-done
+  cluster_name    = "my-eks-cluster"
+  cluster_version = "1.32"
 
-# Import CloudWatch Logs Log Group
-echo "Importing CloudWatch Logs Log Group..."
-terraform import module.eks.aws_cloudwatch_log_group.this[0] /aws/eks/my-eks-cluster/cluster || echo "CloudWatch Logs Log Group not found or already imported"
+  vpc_id     = module.vpc.vpc_id
+  subnet_ids = module.vpc.public_subnets
 
-# Import IAM roles if they exist
-echo "Checking for existing IAM roles..."
-EKS_ROLE=$(aws iam list-roles --query "Roles[?RoleName=='eks-cluster-role'].RoleName" --output text 2>/dev/null || echo "")
-if [ -n "$EKS_ROLE" ]; then
-  echo "Found existing IAM role: $EKS_ROLE"
-  terraform import module.eks.aws_iam_role.this[0] $EKS_ROLE || echo "IAM role already imported or not found"
-fi
+  # Skip creating the CloudWatch Log Group as it already exists
+  create_cloudwatch_log_group = false
 
-echo "Import complete. Now you can run terraform plan/apply."
+  # EKS Managed Node Group(s) - using t3.micro for lowest cost
+  eks_managed_node_groups = {
+    app_nodes = {
+      name         = "app-nodes"
+      min_size     = 1
+      max_size     = 1  # Limiting to just 1 node
+      desired_size = 1
+
+      instance_types = ["t3.small"]  # Using t3.small which has higher pod capacity
+      capacity_type  = "SPOT"  # Using Spot instances for lower cost
+      disk_size      = 20
+      ami_type       = "AL2_x86_64"  # Explicitly using Amazon Linux 2 AMI
+    }
+  }
+
+  tags = {
+    Environment = "dev"
+    Terraform   = "true"
+  }
+}
+EOF
+
+# Apply the changes to main.tf
+SEARCH_PATTERN="module \"eks\" {([^}]*)}"
+REPLACEMENT=$(cat $TEMP_FILE)
+awk -v replacement="$REPLACEMENT" '{
+  if ($0 ~ /module "eks" {/) {
+    print replacement;
+    found=1;
+    while (getline && !($0 ~ /^}/)) {}
+  } else {
+    print $0;
+  }
+}' main.tf > main.tf.new
+mv main.tf.new main.tf
+
+# Run terraform plan to see if our changes fixed the issues
+terraform plan -out=tfplan
+
+echo "Import script complete. Resources have been modified to handle existing infrastructure."
+echo "You can now run terraform apply to apply the changes."

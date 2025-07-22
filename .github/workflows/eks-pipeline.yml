@@ -56,7 +56,11 @@ jobs:
         run: terraform validate
 
       - name: Terraform Plan
-        run: terraform plan -out=tfplan
+        run: |
+          # Skip plan creation if import script already created it
+          if [ ! -f "tfplan" ]; then
+            terraform plan -out=tfplan
+          fi
         
       - name: Upload Terraform Plan
         uses: actions/upload-artifact@v4
