@@ -42,4 +42,13 @@ resource "aws_elasticache_cluster" "redis" {
   port                 = 6379
   subnet_group_name    = aws_elasticache_subnet_group.cache_subnet_group.name
   security_group_ids   = [aws_security_group.elasticache_sg.id]
+  
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes = [
+      node_type,
+      engine_version,
+      parameter_group_name
+    ]
+  }
 }

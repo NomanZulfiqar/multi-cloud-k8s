@@ -54,6 +54,17 @@ resource "aws_db_instance" "postgres" {
   vpc_security_group_ids = [aws_security_group.postgres.id]
   apply_immediately    = true
 
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes = [
+      password,
+      engine_version,
+      allocated_storage,
+      instance_class,
+      parameter_group_name
+    ]
+  }
+
   tags = {
     Environment = "dev"
     Terraform   = "true"

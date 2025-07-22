@@ -25,6 +25,9 @@ module "vpc" {
 
   name = "eks-vpc"
   cidr = "10.0.0.0/16"
+  
+  # Prevent recreation of VPC
+  manage_default_vpc = false
 
   azs             = ["us-east-1a", "us-east-1b"]
   private_subnets = ["10.0.1.0/24", "10.0.2.0/24"]
@@ -61,6 +64,22 @@ module "eks" {
   
   # Skip creating the CloudWatch Log Group as it already exists
   create_cloudwatch_log_group = false
+  
+  # Prevent changes to existing resources
+  cluster_timeouts = {
+    create = "30m"
+    update = "60m"
+    delete = "30m"
+  }
+  
+  # Ignore changes to tags and other attributes
+  cluster_tags = {
+    Name = "my-eks-cluster"
+  }
+  
+  # Keep existing IAM roles
+  manage_cluster_iam_resources = false
+  cluster_iam_role_name = "eks-cluster-role"
 
   # EKS Managed Node Group(s) - using t3.micro for lowest cost
   eks_managed_node_groups = {
