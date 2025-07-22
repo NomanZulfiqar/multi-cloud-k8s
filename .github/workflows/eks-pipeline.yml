@@ -118,7 +118,7 @@ jobs:
           terraform import module.eks.aws_cloudwatch_log_group.this[0] /aws/eks/my-eks-cluster/cluster || echo "Import failed, continuing"
       
       - name: Terraform Apply
-        run: terraform apply -auto-approve tfplan || terraform apply -auto-approve -refresh-only
+        run: terraform apply -auto-approve tfplan || terraform apply -auto-approve
 
       - name: Save Terraform Outputs
         id: terraform_output
