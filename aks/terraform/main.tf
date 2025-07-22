@@ -6,6 +6,10 @@ resource "azurerm_resource_group" "this" {
     Environment = var.environment
     ManagedBy   = "terraform"
   }
+  
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "azurerm_virtual_network" "this" {
@@ -52,5 +56,13 @@ resource "azurerm_kubernetes_cluster" "this" {
   tags = {
     Environment = var.environment
     ManagedBy   = "terraform"
+  }
+  
+  lifecycle {
+    prevent_destroy = true
+    ignore_changes = [
+      kubernetes_version,
+      default_node_pool[0].node_count
+    ]
   }
 }

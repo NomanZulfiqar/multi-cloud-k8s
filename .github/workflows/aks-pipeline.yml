@@ -116,7 +116,8 @@ jobs:
       - name: Save Terraform Outputs
         id: terraform_output
         run: |
-          echo "CLUSTER_NAME=$(terraform output -raw kubernetes_cluster_name || echo 'aks-cluster')" >> $GITHUB_OUTPUT
+          CLUSTER_NAME=$(terraform output -raw kubernetes_cluster_name 2>/dev/null || echo "aks-cluster")
+          echo "CLUSTER_NAME=$CLUSTER_NAME" >> $GITHUB_OUTPUT
 
   deploy-kubernetes:
     name: Deploy to Kubernetes

@@ -22,7 +22,13 @@ terraform import azurerm_kubernetes_cluster.this /subscriptions/1fbbd390-f113-41
 
 # Import Redis cache (if it exists)
 echo "Importing Redis cache..."
-terraform import azurerm_redis_cache.this /subscriptions/1fbbd390-f113-419c-aa71-2c00b9564acb/resourceGroups/aks-resource-group/providers/Microsoft.Cache/redis/aks-redis-250722145327 || echo "Redis cache not found, will be created"
+# Get the actual name of the Redis cache
+REDIS_NAME=$(az redis list --resource-group aks-resource-group --query "[0].name" -o tsv 2>/dev/null || echo "")
+if [ -n "$REDIS_NAME" ]; then
+  terraform import azurerm_redis_cache.this /subscriptions/1fbbd390-f113-419c-aa71-2c00b9564acb/resourceGroups/aks-resource-group/providers/Microsoft.Cache/redis/$REDIS_NAME
+else
+  echo "Redis cache not found, will be created"
+fi
 
 # Import PostgreSQL flexible server (if it exists)
 echo "Importing PostgreSQL flexible server..."

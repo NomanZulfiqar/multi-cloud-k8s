@@ -1,5 +1,5 @@
 resource "azurerm_postgresql_flexible_server" "this" {
-  name                = "aks-postgres-${formatdate("YYMMDDhhmmss", timestamp())}"
+  name                = "aks-postgres-db"
   location            = azurerm_resource_group.this.location
   resource_group_name = azurerm_resource_group.this.name
 

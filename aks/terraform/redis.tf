@@ -1,5 +1,5 @@
 resource "azurerm_redis_cache" "this" {
-  name                = "aks-redis-${formatdate("YYMMDDhhmmss", timestamp())}"
+  name                = "aks-redis-cache"
   location            = azurerm_resource_group.this.location
   resource_group_name = azurerm_resource_group.this.name
   capacity            = 0
