@@ -1,0 +1,48 @@
+name: AKS Destruction Pipeline
+
+on:
+  workflow_dispatch:  # Manual trigger only
+
+env:
+  AZURE_RESOURCE_GROUP: aks-resource-group
+  AKS_CLUSTER_NAME: aks-cluster
+
+jobs:
+  terraform-destroy:
+    name: Terraform Destroy
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./aks/terraform
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+        
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.0.0
+
+      - name: Remove prevent_destroy flags
+        run: |
+          sed -i 's/prevent_destroy = true/prevent_destroy = false/g' *.tf
+          sed -i 's/lifecycle {/lifecycle {\n    prevent_destroy = false/g' *.tf
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Destroy
+        run: terraform destroy -auto-approve

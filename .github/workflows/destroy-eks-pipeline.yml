@@ -1,0 +1,105 @@
+name: EKS Destruction Pipeline
+
+on:
+  workflow_dispatch:  # Manual trigger only
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  terraform-destroy:
+    name: Terraform Destroy
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./eks/terraform
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.0.0
+
+      - name: Remove prevent_destroy flags
+        run: |
+          sed -i 's/prevent_destroy = true/prevent_destroy = false/g' *.tf
+          sed -i 's/lifecycle {/lifecycle {\n    prevent_destroy = false/g' *.tf
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Get EKS Resources
+        id: get-resources
+        run: |
+          # Get node group name
+          NODE_GROUP=$(aws eks list-nodegroups --cluster-name my-eks-cluster --query 'nodegroups[0]' --output text || echo "")
+          echo "NODE_GROUP=$NODE_GROUP" >> $GITHUB_OUTPUT
+          
+          # Get ElastiCache cluster ID
+          CACHE_CLUSTER=$(aws elasticache describe-cache-clusters --query 'CacheClusters[?CacheClusterId==`eks-redis`].CacheClusterId' --output text || echo "")
+          echo "CACHE_CLUSTER=$CACHE_CLUSTER" >> $GITHUB_OUTPUT
+          
+          # Get RDS instance ID
+          DB_INSTANCE=$(aws rds describe-db-instances --query 'DBInstances[?DBInstanceIdentifier==`eks-postgres`].DBInstanceIdentifier' --output text || echo "")
+          echo "DB_INSTANCE=$DB_INSTANCE" >> $GITHUB_OUTPUT
+
+      - name: Delete EKS Node Groups
+        if: steps.get-resources.outputs.NODE_GROUP != ''
+        run: |
+          echo "Deleting node group: ${{ steps.get-resources.outputs.NODE_GROUP }}"
+          aws eks delete-nodegroup --cluster-name my-eks-cluster --nodegroup-name ${{ steps.get-resources.outputs.NODE_GROUP }}
+          
+          # Wait for node group deletion (up to 10 minutes)
+          for i in {1..20}; do
+            STATUS=$(aws eks describe-nodegroup --cluster-name my-eks-cluster --nodegroup-name ${{ steps.get-resources.outputs.NODE_GROUP }} --query 'nodegroup.status' --output text 2>/dev/null || echo "DELETED")
+            echo "Node group status: $STATUS"
+            if [ "$STATUS" == "DELETED" ]; then
+              break
+            fi
+            sleep 30
+          done
+
+      - name: Delete ElastiCache Cluster
+        if: steps.get-resources.outputs.CACHE_CLUSTER != ''
+        run: |
+          echo "Deleting ElastiCache cluster: ${{ steps.get-resources.outputs.CACHE_CLUSTER }}"
+          aws elasticache delete-cache-cluster --cache-cluster-id ${{ steps.get-resources.outputs.CACHE_CLUSTER }}
+          
+          # Wait for ElastiCache deletion (up to 10 minutes)
+          for i in {1..20}; do
+            STATUS=$(aws elasticache describe-cache-clusters --cache-cluster-id ${{ steps.get-resources.outputs.CACHE_CLUSTER }} --query 'CacheClusters[0].CacheClusterStatus' --output text 2>/dev/null || echo "DELETED")
+            echo "ElastiCache status: $STATUS"
+            if [ "$STATUS" == "DELETED" ]; then
+              break
+            fi
+            sleep 30
+          done
+
+      - name: Delete RDS Instance
+        if: steps.get-resources.outputs.DB_INSTANCE != ''
+        run: |
+          echo "Deleting RDS instance: ${{ steps.get-resources.outputs.DB_INSTANCE }}"
+          aws rds delete-db-instance --db-instance-identifier ${{ steps.get-resources.outputs.DB_INSTANCE }} --skip-final-snapshot
+          
+          # Wait for RDS deletion (up to 15 minutes)
+          for i in {1..30}; do
+            STATUS=$(aws rds describe-db-instances --db-instance-identifier ${{ steps.get-resources.outputs.DB_INSTANCE }} --query 'DBInstances[0].DBInstanceStatus' --output text 2>/dev/null || echo "DELETED")
+            echo "RDS status: $STATUS"
+            if [ "$STATUS" == "DELETED" ]; then
+              break
+            fi
+            sleep 30
+          done
+
+      - name: Terraform Destroy
+        run: terraform destroy -auto-approve
