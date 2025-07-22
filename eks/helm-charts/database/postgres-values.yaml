@@ -1,0 +1,26 @@
+## PostgreSQL chart configuration
+## ref: https://github.com/bitnami/charts/tree/master/bitnami/postgresql
+##
+global:
+  postgresql:
+    auth:
+      postgresPassword: "postgres-password"  # Change this in production
+      username: "app_user"
+      password: "app_password"  # Change this in production
+      database: "app_database"
+
+primary:
+  persistence:
+    enabled: false  # Disabled persistence for learning purposes
+  
+  resources:
+    requests:
+      memory: 128Mi
+      cpu: 100m
+    limits:
+      memory: 256Mi
+      cpu: 200m
+
+service:
+  type: ClusterIP
+  port: 5432
