@@ -18,7 +18,7 @@ sed -i 's/resource "aws_elasticache_subnet_group" "cache_subnet_group" {/resourc
 sed -i 's/resource "aws_db_subnet_group" "postgres" {/resource "aws_db_subnet_group" "postgres" {\n  lifecycle {\n    prevent_destroy = true\n    ignore_changes = [subnet_ids]\n  }/' rds.tf
 
 # Modify main.tf to disable CloudWatch Log Group creation
-sed -i '/subnet_ids = module.vpc.public_subnets/a\n  # Skip creating the CloudWatch Log Group as it already exists\n  create_cloudwatch_log_group = false' main.tf
+sed -i '/subnet_ids = module.vpc.public_subnets/a\  # Skip creating the CloudWatch Log Group as it already exists\n  create_cloudwatch_log_group = false' main.tf
 
 # Import existing resources
 echo "Importing existing resources..."
