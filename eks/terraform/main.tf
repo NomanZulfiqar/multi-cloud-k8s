@@ -5,6 +5,14 @@ terraform {
       version = "~> 4.47.0"  # Pinning to a version compatible with the modules
     }
   }
+  
+  backend "s3" {
+    bucket         = "noman-rocket-zulfiqar-terraform-backend-us-east-1"
+    key            = "eks/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "noman-rocket-zulfiqar-terraform-backend-us-east-1.lock"
+    encrypt        = true
+  }
 }
 
 provider "aws" {

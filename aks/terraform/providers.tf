@@ -12,15 +12,19 @@ terraform {
       source  = "hashicorp/helm"
       version = "~> 2.11.0"
     }
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 4.47.0"
+    }
   }
   
-  # Uncomment this block if you want to use remote state
-  # backend "azurerm" {
-  #   resource_group_name  = "terraform-state-rg"
-  #   storage_account_name = "tfstateaccount"
-  #   container_name       = "tfstate"
-  #   key                  = "aks.terraform.tfstate"
-  # }
+  backend "s3" {
+    bucket         = "noman-rocket-zulfiqar-terraform-backend-us-east-1"
+    key            = "aks/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "noman-rocket-zulfiqar-terraform-backend-us-east-1.lock"
+    encrypt        = true
+  }
 }
 
 provider "azurerm" {
@@ -30,6 +34,10 @@ provider "azurerm" {
     }
   }
   skip_provider_registration = true
+}
+
+provider "aws" {
+  region = "us-east-1"
 }
 
 provider "kubernetes" {

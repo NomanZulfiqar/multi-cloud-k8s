@@ -41,7 +41,7 @@ jobs:
           terraform_version: 1.0.0
 
       - name: Terraform Init
-        run: terraform init
+        run: terraform init -upgrade
 
       - name: Terraform Format
         run: terraform fmt -write=true
@@ -85,7 +85,7 @@ jobs:
           terraform_version: 1.0.0
 
       - name: Terraform Init
-        run: terraform init
+        run: terraform init -upgrade
 
       - name: Download Terraform Plan
         uses: actions/download-artifact@v4
@@ -95,6 +95,12 @@ jobs:
 
       - name: Terraform Apply
         run: terraform apply -auto-approve tfplan
+
+      - name: Save Terraform Outputs
+        id: terraform_output
+        run: |
+          echo "CLUSTER_NAME=$(terraform output -raw cluster_name)" >> $GITHUB_OUTPUT
+          echo "REGION=$(terraform output -raw region)" >> $GITHUB_OUTPUT
 
   deploy-kubernetes:
     name: Deploy to Kubernetes
@@ -112,6 +118,26 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.0.0
+
+      - name: Terraform Init
+        working-directory: ./eks/terraform
+        run: terraform init -upgrade
+
+      - name: Get Cluster Info
+        working-directory: ./eks/terraform
+        run: |
+          CLUSTER_NAME=$(terraform output -raw cluster_name)
+          echo "Using cluster: $CLUSTER_NAME in region $AWS_REGION"
 
       - name: Update kubeconfig
         run: aws eks update-kubeconfig --name my-eks-cluster --region ${{ env.AWS_REGION }}

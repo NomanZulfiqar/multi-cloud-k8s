@@ -15,7 +15,7 @@ on:
 
 env:
   AZURE_RESOURCE_GROUP: aks-resource-group
-  AKS_CLUSTER_NAME: my-aks-cluster
+  AKS_CLUSTER_NAME: aks-cluster
 
 jobs:
   terraform-plan:
@@ -98,6 +98,11 @@ jobs:
 
       - name: Terraform Apply
         run: terraform apply -auto-approve tfplan
+
+      - name: Save Terraform Outputs
+        id: terraform_output
+        run: |
+          echo "CLUSTER_NAME=$(terraform output -raw kubernetes_cluster_name || echo 'aks-cluster')" >> $GITHUB_OUTPUT
 
   deploy-kubernetes:
     name: Deploy to Kubernetes
