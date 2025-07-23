@@ -235,12 +235,17 @@ resource "aws_iam_policy" "aws_load_balancer_controller" {
   })
 }
 
-# Create IAM role for AWS Load Balancer Controller
+# Check if the role already exists
+data "aws_iam_role" "existing_alb_role" {
+  name = "aws-load-balancer-controller"
+}
+
+# Create IAM role for AWS Load Balancer Controller only if it doesn't exist
 module "aws_load_balancer_controller_role" {
   source = "terraform-aws-modules/iam/aws//modules/iam-assumable-role-with-oidc"
   version = "5.3.0"
 
-  create_role = true
+  create_role = data.aws_iam_role.existing_alb_role.arn == "" ? true : false
   role_name   = "aws-load-balancer-controller"
   provider_url = replace(module.eks.cluster_oidc_issuer_url, "https://", "")
   role_policy_arns = [length(aws_iam_policy.aws_load_balancer_controller) > 0 ? aws_iam_policy.aws_load_balancer_controller[0].arn : data.aws_iam_policy.existing_alb_policy.arn]
@@ -250,7 +255,7 @@ module "aws_load_balancer_controller_role" {
 # Output the IAM role ARN for the AWS Load Balancer Controller
 output "aws_load_balancer_controller_role_arn" {
   description = "IAM role ARN for AWS Load Balancer Controller"
-  value       = module.aws_load_balancer_controller_role.iam_role_arn
+  value       = data.aws_iam_role.existing_alb_role.arn != "" ? data.aws_iam_role.existing_alb_role.arn : module.aws_load_balancer_controller_role.iam_role_arn
 }
 
 # Output the IAM policy ARN for the AWS Load Balancer Controller
