@@ -8,7 +8,7 @@ resource "azurerm_resource_group" "this" {
   }
   
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = false
   }
 }
 
@@ -58,7 +58,7 @@ resource "azurerm_kubernetes_cluster" "this" {
   }
   
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = false
     ignore_changes = [
       kubernetes_version,
       default_node_pool[0].node_count,

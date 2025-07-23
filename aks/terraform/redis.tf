@@ -4,7 +4,7 @@ resource "azurerm_redis_cache" "this" {
   resource_group_name = azurerm_resource_group.this.name
   
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = false
     ignore_changes = [
       redis_configuration,
       capacity,
