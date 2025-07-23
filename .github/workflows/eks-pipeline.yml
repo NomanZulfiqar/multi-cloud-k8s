@@ -252,11 +252,10 @@ jobs:
 
       - name: Install External Secrets Operator
         run: |
-          # Clone the External Secrets repository to get the latest CRDs
-          git clone --depth 1 https://github.com/external-secrets/external-secrets.git
-          
-          # Apply all CRDs directly
-          kubectl apply -f external-secrets/config/crds/
+          # Install External Secrets CRDs directly from URLs
+          kubectl apply -f https://raw.githubusercontent.com/external-secrets/external-secrets/main/config/crds/bases/external-secrets.io_secretstores.yaml
+          kubectl apply -f https://raw.githubusercontent.com/external-secrets/external-secrets/main/config/crds/bases/external-secrets.io_externalsecrets.yaml
+          kubectl apply -f https://raw.githubusercontent.com/external-secrets/external-secrets/main/config/crds/bases/external-secrets.io_clustersecretstores.yaml
           
           # Wait for CRDs to be established
           echo "Waiting for SecretStore CRD to be available..."
