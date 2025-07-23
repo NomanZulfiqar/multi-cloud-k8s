@@ -276,7 +276,9 @@ jobs:
           
           # Install External Secrets CRDs directly
           echo "Installing External Secrets CRDs directly..."
-          kubectl apply -f https://github.com/external-secrets/external-secrets/releases/download/v0.9.9/crds.yaml
+          kubectl apply -f https://raw.githubusercontent.com/external-secrets/external-secrets/main/config/crds/bases/external-secrets.io_clustersecretstores.yaml
+          kubectl apply -f https://raw.githubusercontent.com/external-secrets/external-secrets/main/config/crds/bases/external-secrets.io_externalsecrets.yaml
+          kubectl apply -f https://raw.githubusercontent.com/external-secrets/external-secrets/main/config/crds/bases/external-secrets.io_secretstores.yaml
           
           # Wait for CRDs to be established
           echo "Waiting for CRDs to be established..."
