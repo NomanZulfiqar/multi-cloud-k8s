@@ -3,7 +3,6 @@ resource "aws_db_subnet_group" "postgres" {
   subnet_ids = module.vpc.public_subnets  # Using public subnets for learning purposes
 
   lifecycle {
-    prevent_destroy = false
     ignore_changes = [subnet_ids]
   }
   
@@ -55,7 +54,6 @@ resource "aws_db_instance" "postgres" {
   apply_immediately    = true
 
   lifecycle {
-    prevent_destroy = false
     ignore_changes = [
       password,
       engine_version,

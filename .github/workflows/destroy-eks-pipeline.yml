@@ -16,7 +16,7 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
@@ -30,13 +30,31 @@ jobs:
         with:
           terraform_version: 1.0.0
 
-      - name: Remove prevent_destroy flags
-        run: |
-          sed -i 's/prevent_destroy = true/prevent_destroy = false/g' *.tf
-          sed -i 's/lifecycle {/lifecycle {\n    prevent_destroy = false/g' *.tf
-
       - name: Terraform Init
-        run: terraform init
+        run: terraform init -upgrade
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'v3.8.0'
+          
+      - name: Clean up Kubernetes resources
+        run: |
+          # Update kubeconfig
+          aws eks update-kubeconfig --name my-eks-cluster --region ${{ env.AWS_REGION }}
+          
+          # Delete Helm releases
+          echo "Deleting Helm releases..."
+          helm ls -A -q | xargs -r helm uninstall || echo "No Helm releases to delete"
+          
+          # Delete namespaces
+          echo "Deleting external-secrets namespace..."
+          kubectl delete namespace external-secrets --ignore-not-found=true
 
       - name: Get EKS Resources
         id: get-resources
@@ -52,6 +70,10 @@ jobs:
           # Get RDS instance ID
           DB_INSTANCE=$(aws rds describe-db-instances --query 'DBInstances[?DBInstanceIdentifier==`eks-postgres`].DBInstanceIdentifier' --output text || echo "")
           echo "DB_INSTANCE=$DB_INSTANCE" >> $GITHUB_OUTPUT
+          
+          # Get ECR repository name
+          ECR_REPO=$(aws ecr describe-repositories --query 'repositories[?repositoryName==`myapp`].repositoryName' --output text || echo "")
+          echo "ECR_REPO=$ECR_REPO" >> $GITHUB_OUTPUT
 
       - name: Delete EKS Node Groups
         if: steps.get-resources.outputs.NODE_GROUP != ''
@@ -100,6 +122,32 @@ jobs:
             fi
             sleep 30
           done
+          
+      - name: Delete AWS Secrets Manager Secret
+        run: |
+          echo "Deleting AWS Secrets Manager secret..."
+          aws secretsmanager delete-secret --secret-id myapp/db-credentials --force-delete-without-recovery --region ${{ env.AWS_REGION }} || echo "Secret may not exist, continuing"
+
+      - name: Clean up ECR Repository
+        if: steps.get-resources.outputs.ECR_REPO != ''
+        run: |
+          echo "Cleaning up ECR repository: ${{ steps.get-resources.outputs.ECR_REPO }}"
+          
+          # Delete all images in the repository
+          # First get the image digests
+          DIGESTS=$(aws ecr list-images --repository-name ${{ steps.get-resources.outputs.ECR_REPO }} --query 'imageIds[*].imageDigest' --output text || echo "")
+          
+          if [ -n "$DIGESTS" ]; then
+            echo "Deleting images from ECR repository..."
+            for DIGEST in $DIGESTS; do
+              echo "Deleting image with digest: $DIGEST"
+              aws ecr batch-delete-image --repository-name ${{ steps.get-resources.outputs.ECR_REPO }} --image-ids imageDigest=$DIGEST || echo "Failed to delete image, continuing"
+            done
+          else
+            echo "No images found in repository"
+          fi
+          
+          # Note: We don't delete the ECR repository here as Terraform will handle it
 
       - name: Terraform Destroy
         run: terraform destroy -auto-approve
