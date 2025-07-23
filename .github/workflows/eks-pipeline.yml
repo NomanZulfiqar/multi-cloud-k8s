@@ -120,8 +120,8 @@ jobs:
       - name: Save Terraform Outputs
         id: terraform_output
         run: |
-          echo "CLUSTER_NAME=$(terraform output -raw cluster_name)" >> $GITHUB_OUTPUT
-          echo "REGION=$(terraform output -raw region)" >> $GITHUB_OUTPUT
+          echo "CLUSTER_NAME=my-eks-cluster" >> $GITHUB_OUTPUT
+          echo "REGION=us-east-1" >> $GITHUB_OUTPUT
 
   build-and-push:
     name: Build and Push Docker Image
@@ -157,7 +157,8 @@ jobs:
         id: ecr-url
         working-directory: ./eks/terraform
         run: |
-          ECR_REPOSITORY_URL=$(terraform output -raw ecr_repository_url)
+          # Extract just the repository URL without debug info
+          ECR_REPOSITORY_URL=$(terraform output -raw ecr_repository_url 2>/dev/null | sed 's/::debug::.*$//')
           echo "ECR_REPOSITORY_URL=$ECR_REPOSITORY_URL" >> $GITHUB_OUTPUT
 
       - name: Build and push Docker image
@@ -206,12 +207,14 @@ jobs:
         id: terraform-outputs
         working-directory: ./eks/terraform
         run: |
-          CLUSTER_NAME=$(terraform output -raw cluster_name)
-          ECR_REPOSITORY_URL=$(terraform output -raw ecr_repository_url)
-          EXTERNAL_SECRETS_ROLE_ARN=$(terraform output -raw aws_iam_role_external_secrets_arn || echo "")
+          CLUSTER_NAME="my-eks-cluster"
+          # Extract just the repository URL without debug info
+          ECR_URL=$(terraform output -raw ecr_repository_url 2>/dev/null | sed 's/::debug::.*$//')
+          # Extract just the role ARN without debug info
+          ROLE_ARN=$(terraform output -raw aws_iam_role_external_secrets_arn 2>/dev/null | sed 's/::debug::.*$//' || echo "")
           echo "CLUSTER_NAME=$CLUSTER_NAME" >> $GITHUB_OUTPUT
-          echo "ECR_REPOSITORY_URL=$ECR_REPOSITORY_URL" >> $GITHUB_OUTPUT
-          echo "EXTERNAL_SECRETS_ROLE_ARN=$EXTERNAL_SECRETS_ROLE_ARN" >> $GITHUB_OUTPUT
+          echo "ECR_REPOSITORY_URL=$ECR_URL" >> $GITHUB_OUTPUT
+          echo "EXTERNAL_SECRETS_ROLE_ARN=$ROLE_ARN" >> $GITHUB_OUTPUT
 
       - name: Update kubeconfig
         run: aws eks update-kubeconfig --name my-eks-cluster --region ${{ env.AWS_REGION }}
