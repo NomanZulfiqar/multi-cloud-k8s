@@ -3,7 +3,7 @@ resource "aws_elasticache_subnet_group" "cache_subnet_group" {
   subnet_ids = module.vpc.public_subnets
   
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = false
     ignore_changes = [subnet_ids]
   }
 }
@@ -44,7 +44,7 @@ resource "aws_elasticache_cluster" "redis" {
   security_group_ids   = [aws_security_group.elasticache_sg.id]
   
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = false
     ignore_changes = [
       node_type,
       engine_version,
