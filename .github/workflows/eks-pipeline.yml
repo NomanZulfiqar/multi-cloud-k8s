@@ -240,7 +240,12 @@ jobs:
           helm repo add external-secrets https://charts.external-secrets.io
           helm upgrade --install external-secrets external-secrets/external-secrets \
             --namespace external-secrets \
-            --create-namespace
+            --create-namespace \
+            --set installCRDs=true
+          
+          # Wait for CRDs to be available
+          echo "Waiting for External Secrets CRDs to be available..."
+          kubectl wait --for condition=established --timeout=90s crd/secretstores.external-secrets.io || true
 
       - name: Apply External Secrets Resources
         run: |
