@@ -252,34 +252,97 @@ jobs:
 
       - name: Install External Secrets Operator
         run: |
+          # Clone the External Secrets repository to get the latest CRDs
+          git clone --depth 1 https://github.com/external-secrets/external-secrets.git
+          
+          # Apply all CRDs directly
+          kubectl apply -f external-secrets/config/crds/
+          
+          # Wait for CRDs to be established
+          echo "Waiting for SecretStore CRD to be available..."
+          kubectl wait --for condition=established --timeout=120s crd/secretstores.external-secrets.io || true
+          
+          echo "Waiting for ExternalSecret CRD to be available..."
+          kubectl wait --for condition=established --timeout=120s crd/externalsecrets.external-secrets.io || true
+          
+          echo "Waiting for ClusterSecretStore CRD to be available..."
+          kubectl wait --for condition=established --timeout=120s crd/clustersecretstores.external-secrets.io || true
+          
+          # Now install the operator with Helm
           helm repo add external-secrets https://charts.external-secrets.io
           helm repo update
           
-          # Install CRDs separately first
-          kubectl apply -f https://raw.githubusercontent.com/external-secrets/external-secrets/main/config/crds/bases/external-secrets.io_secretstores.yaml
-          kubectl apply -f https://raw.githubusercontent.com/external-secrets/external-secrets/main/config/crds/bases/external-secrets.io_externalsecrets.yaml
-          
-          # Wait for CRDs to be available
-          echo "Waiting for External Secrets CRDs to be available..."
-          kubectl wait --for condition=established --timeout=90s crd/secretstores.external-secrets.io
-          kubectl wait --for condition=established --timeout=90s crd/externalsecrets.external-secrets.io
-          
-          # Now install the operator
           helm upgrade --install external-secrets external-secrets/external-secrets \
             --namespace external-secrets \
             --create-namespace \
-            --set installCRDs=false
-
-      - name: Apply External Secrets Resources
+            --set installCRDs=false \
+            --wait
+      
+      - name: Create Service Account for External Secrets
         run: |
-          # Replace variables in YAML files
-          sed -i "s|\${EXTERNAL_SECRETS_ROLE_ARN}|${{ steps.terraform-outputs.outputs.EXTERNAL_SECRETS_ROLE_ARN }}|g" ./eks/kubernetes/external-secrets/service-account.yaml
+          # Create service account with IAM role annotation
+          cat <<EOF | kubectl apply -f -
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: external-secrets-sa
+            namespace: external-secrets
+            annotations:
+              eks.amazonaws.com/role-arn: ${{ steps.terraform-outputs.outputs.EXTERNAL_SECRETS_ROLE_ARN }}
+          EOF
+      
+      - name: Create SecretStore
+        run: |
+          # Create SecretStore resource
+          cat <<EOF | kubectl apply -f -
+          apiVersion: external-secrets.io/v1beta1
+          kind: SecretStore
+          metadata:
+            name: aws-secretsmanager
+            namespace: default
+          spec:
+            provider:
+              aws:
+                service: SecretsManager
+                region: us-east-1
+                auth:
+                  jwt:
+                    serviceAccountRef:
+                      name: external-secrets-sa
+                      namespace: external-secrets
+          EOF
+      
+      - name: Create ExternalSecret
+        run: |
+          # Create ExternalSecret resource
+          cat <<EOF | kubectl apply -f -
+          apiVersion: external-secrets.io/v1beta1
+          kind: ExternalSecret
+          metadata:
+            name: db-credentials
+            namespace: default
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: aws-secretsmanager
+              kind: SecretStore
+            target:
+              name: db-credentials
+              creationPolicy: Owner
+            data:
+            - secretKey: username
+              remoteRef:
+                key: myapp/db-credentials
+                property: username
+            - secretKey: password
+              remoteRef:
+                key: myapp/db-credentials
+                property: password
+          EOF
           
-          # Apply resources
-          kubectl apply -f ./eks/kubernetes/external-secrets/namespace.yaml
-          kubectl apply -f ./eks/kubernetes/external-secrets/service-account.yaml
-          kubectl apply -f ./eks/kubernetes/external-secrets/secret-store.yaml
-          kubectl apply -f ./eks/kubernetes/external-secrets/external-secret.yaml
+          # Wait for the secret to be created
+          echo "Waiting for db-credentials secret to be created..."
+          kubectl wait --for=condition=ready secret/db-credentials --timeout=60s || true
 
       - name: Deploy Database
         run: |
