@@ -252,17 +252,31 @@ jobs:
 
       - name: Install External Secrets Operator
         run: |
-          # Install External Secrets CRDs directly from URLs
-          kubectl apply -f https://raw.githubusercontent.com/external-secrets/external-secrets/main/config/crds/bases/external-secrets.io_secretstores.yaml
-          kubectl apply -f https://raw.githubusercontent.com/external-secrets/external-secrets/main/config/crds/bases/external-secrets.io_externalsecrets.yaml
-          kubectl apply -f https://raw.githubusercontent.com/external-secrets/external-secrets/main/config/crds/bases/external-secrets.io_clustersecretstores.yaml
+          # Install External Secrets Operator with Helm
+          helm repo add external-secrets https://charts.external-secrets.io
+          helm repo update
+          
+          # Install with CRDs enabled
+          helm upgrade --install external-secrets external-secrets/external-secrets \
+            --namespace external-secrets \
+            --create-namespace \
+            --set installCRDs=true \
+            --wait --timeout 5m
+          
+          # Verify CRDs are installed
+          echo "Verifying CRDs are installed..."
+          kubectl get crd | grep external-secrets.io
           
           # Wait for CRDs to be established
           echo "Waiting for SecretStore CRD to be available..."
-          kubectl wait --for condition=established --timeout=120s crd/secretstores.external-secrets.io || true
+          kubectl wait --for condition=established --timeout=180s crd/secretstores.external-secrets.io || true
           
           echo "Waiting for ExternalSecret CRD to be available..."
-          kubectl wait --for condition=established --timeout=120s crd/externalsecrets.external-secrets.io || true
+          kubectl wait --for condition=established --timeout=180s crd/externalsecrets.external-secrets.io || true
+          
+          # Sleep to ensure CRDs are fully ready
+          echo "Sleeping for 30 seconds to ensure CRDs are fully ready..."
+          sleep 30
           
           echo "Waiting for ClusterSecretStore CRD to be available..."
           kubectl wait --for condition=established --timeout=120s crd/clustersecretstores.external-secrets.io || true
