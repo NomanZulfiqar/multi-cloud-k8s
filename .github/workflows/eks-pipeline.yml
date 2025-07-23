@@ -261,11 +261,88 @@ jobs:
       
       - name: Install External Secrets Operator
         run: |
-          # Install External Secrets CRDs directly using kubectl
-          echo "Installing External Secrets CRDs directly..."
+          # Create namespace
+          kubectl create namespace external-secrets --dry-run=client -o yaml | kubectl apply -f -
           
-          # Apply CRDs directly from URLs
+          # Create service account for External Secrets
+          kubectl apply -f ./eks/kubernetes/external-secrets/namespace.yaml
+          kubectl apply -f ./eks/kubernetes/external-secrets/service-account.yaml
+          
+          # Annotate service account with IAM role
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/external-secrets-operator"
+          kubectl annotate serviceaccount -n external-secrets external-secrets-sa \
+            eks.amazonaws.com/role-arn=${ROLE_ARN} --overwrite
+          
+          # Install External Secrets CRDs directly
+          echo "Installing External Secrets CRDs directly..."
+          kubectl apply -f https://github.com/external-secrets/external-secrets/releases/download/v0.9.9/crds.yaml
+          
+          # Wait for CRDs to be established
+          echo "Waiting for CRDs to be established..."
+          kubectl wait --for condition=established --timeout=60s crd/secretstores.external-secrets.io
+          kubectl wait --for condition=established --timeout=60s crd/externalsecrets.external-secrets.io
+          kubectl wait --for condition=established --timeout=60s crd/clustersecretstores.external-secrets.io
+          
+          echo "Sleeping for 30 seconds to ensure CRDs are fully ready..."
+          sleep 30
+          
+          # Install External Secrets Operator with increased timeout
+          echo "Installing External Secrets Operator..."
+          helm repo add external-secrets https://charts.external-secrets.io
+          helm repo update
+          
+          # Install with increased timeout and specific version
+          helm upgrade --install external-secrets \
+            external-secrets/external-secrets \
+            --namespace external-secrets \
+            --set installCRDs=false \
+            --set webhook.port=9443 \
+            --timeout 5m0s \
+            --wait
+          
+          # Apply SecretStore and ExternalSecret resources
+          kubectl apply -f ./eks/kubernetes/external-secrets/secret-store.yaml
+          kubectl apply -f ./eks/kubernetes/external-secrets/external-secret.yaml
+          
+          # Wait for the secret to be created
+          echo "Waiting for secret to be created..."
+          kubectl wait --for=condition=ready --timeout=120s secret/db-credentials -n default || echo "Secret may not be ready yet, continuing"
+
+      - name: Deploy Database
+        run: |
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo update
+          helm upgrade --install postgres bitnami/postgresql -f ./eks/helm-charts/database/postgres-values.yaml
+
+      - name: Prepare Application Values
+        run: |
+          # Replace ECR repository URL in values.yaml
+          sed -i "s|\${ECR_REPOSITORY_URL}|${{ steps.terraform-outputs.outputs.ECR_REPOSITORY_URL }}|g" ./eks/helm-charts/application/values.yaml
+
+      - name: Deploy Application
+        run: |
+          helm upgrade --install myapp ./eks/helm-charts/application
+          
+      - name: Wait for Application to be Ready
+        run: |
+          kubectl wait --for=condition=available --timeout=120s deployment/myapp
+          echo "Application URL:"
+          kubectl get svc myapp -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'      # Apply CRDs directly from URLs
           curl -sL https://raw.githubusercontent.com/external-secrets/external-secrets/main/config/crds/bases/external-secrets.io_secretstores.yaml | kubectl apply -f -
+          curl -sL https://raw.githubusercontent.com/external-secrets/external-secrets/main/config/crds/bases/external-secrets.io_externalsecrets.yaml | kubectl apply -f -
+          curl -sL https://raw.githubusercontent.com/external-secrets/external-secrets/main/config/crds/bases/external-secrets.io_clustersecretstores.yaml | kubectl apply -f -
+          
+          # Skip Helm installation to save time
+          echo "Skipping Helm installation of External Secrets Operator"
+          
+          # Create a direct Kubernetes secret as fallback
+          echo "Creating direct Kubernetes secret..."
+          kubectl create secret generic db-credentials \
+            --from-literal=username=app_user \
+            --from-literal=password=app_password \
+            --namespace=default \
+            --dry-run=client -o yaml | kubectl apply -f -/main/config/crds/bases/external-secrets.io_secretstores.yaml | kubectl apply -f -
           curl -sL https://raw.githubusercontent.com/external-secrets/external-secrets/main/config/crds/bases/external-secrets.io_externalsecrets.yaml | kubectl apply -f -
           curl -sL https://raw.githubusercontent.com/external-secrets/external-secrets/main/config/crds/bases/external-secrets.io_clustersecretstores.yaml | kubectl apply -f -
           
