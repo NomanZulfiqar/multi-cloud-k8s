@@ -105,14 +105,29 @@ jobs:
 
       - name: Manual Import of Critical Resources
         run: |
-          # Import ElastiCache subnet group
-          terraform import aws_elasticache_subnet_group.cache_subnet_group cache-subnet-group || echo "Import failed, continuing"
+          # Check if ElastiCache subnet group is in state before importing
+          if ! terraform state list | grep -q "aws_elasticache_subnet_group.cache_subnet_group"; then
+            echo "Importing ElastiCache subnet group..."
+            terraform import aws_elasticache_subnet_group.cache_subnet_group cache-subnet-group || echo "Import failed, continuing"
+          else
+            echo "ElastiCache subnet group already in state, skipping import"
+          fi
           
-          # Import RDS DB subnet group
-          terraform import aws_db_subnet_group.postgres postgres-subnet-group || echo "Import failed, continuing"
+          # Check if RDS DB subnet group is in state before importing
+          if ! terraform state list | grep -q "aws_db_subnet_group.postgres"; then
+            echo "Importing RDS DB subnet group..."
+            terraform import aws_db_subnet_group.postgres postgres-subnet-group || echo "Import failed, continuing"
+          else
+            echo "RDS DB subnet group already in state, skipping import"
+          fi
           
-          # Import EKS cluster
-          terraform import module.eks.aws_eks_cluster.this[0] my-eks-cluster || echo "Import failed, continuing"
+          # Check if EKS cluster is in state before importing
+          if ! terraform state list | grep -q "module.eks.aws_eks_cluster.this"; then
+            echo "Importing EKS cluster..."
+            terraform import module.eks.aws_eks_cluster.this[0] my-eks-cluster || echo "Import failed, continuing"
+          else
+            echo "EKS cluster already in state, skipping import"
+          fi
       
       - name: Terraform Apply
         run: terraform apply -auto-approve tfplan || terraform apply -auto-approve
@@ -238,14 +253,22 @@ jobs:
       - name: Install External Secrets Operator
         run: |
           helm repo add external-secrets https://charts.external-secrets.io
-          helm upgrade --install external-secrets external-secrets/external-secrets \
-            --namespace external-secrets \
-            --create-namespace \
-            --set installCRDs=true
+          helm repo update
+          
+          # Install CRDs separately first
+          kubectl apply -f https://raw.githubusercontent.com/external-secrets/external-secrets/main/config/crds/bases/external-secrets.io_secretstores.yaml
+          kubectl apply -f https://raw.githubusercontent.com/external-secrets/external-secrets/main/config/crds/bases/external-secrets.io_externalsecrets.yaml
           
           # Wait for CRDs to be available
           echo "Waiting for External Secrets CRDs to be available..."
-          kubectl wait --for condition=established --timeout=90s crd/secretstores.external-secrets.io || true
+          kubectl wait --for condition=established --timeout=90s crd/secretstores.external-secrets.io
+          kubectl wait --for condition=established --timeout=90s crd/externalsecrets.external-secrets.io
+          
+          # Now install the operator
+          helm upgrade --install external-secrets external-secrets/external-secrets \
+            --namespace external-secrets \
+            --create-namespace \
+            --set installCRDs=false
 
       - name: Apply External Secrets Resources
         run: |
