@@ -250,42 +250,6 @@ jobs:
         with:
           version: 'v3.8.0'
 
-      - name: Install External Secrets Operator
-        run: |
-          # Delete any existing External Secrets CRDs
-          echo "Deleting any existing External Secrets CRDs..."
-          kubectl delete crd secretstores.external-secrets.io || true
-          kubectl delete crd externalsecrets.external-secrets.io || true
-          kubectl delete crd clustersecretstores.external-secrets.io || true
-          
-          # Delete any existing External Secrets installation
-          echo "Deleting any existing External Secrets installation..."
-          helm delete external-secrets --namespace external-secrets || true
-          
-          # Wait a bit to ensure resources are deleted
-          echo "Waiting for resources to be deleted..."
-          sleep 10
-          
-          # Install External Secrets Operator with Helm
-          echo "Installing External Secrets Operator..."
-          helm repo add external-secrets https://charts.external-secrets.io
-          helm repo update
-          
-          # Install with CRDs enabled
-          helm install external-secrets external-secrets/external-secrets \
-            --namespace external-secrets \
-            --create-namespace \
-            --set installCRDs=true \
-            --wait --timeout 5m
-          
-          # Verify CRDs are installed
-          echo "Verifying CRDs are installed..."
-          kubectl get crd | grep external-secrets.io
-          
-          # Sleep to ensure CRDs are fully ready
-          echo "Sleeping for 30 seconds to ensure CRDs are fully ready..."
-          sleep 30
-      
       - name: Create AWS Secrets Manager Secret
         run: |
           # Create the actual secret in AWS Secrets Manager
@@ -295,11 +259,41 @@ jobs:
             --secret-string '{"username":"app_user","password":"app_password"}' \
             --region us-east-1 || echo "Secret may already exist, continuing"
       
-      - name: Create Service Account for External Secrets
+      - name: Install External Secrets Operator
         run: |
-          # Create namespace if it doesn't exist
+          # Install External Secrets CRDs directly using kubectl
+          echo "Installing External Secrets CRDs directly..."
+          
+          # Apply CRDs directly from URLs
+          curl -sL https://raw.githubusercontent.com/external-secrets/external-secrets/main/config/crds/bases/external-secrets.io_secretstores.yaml | kubectl apply -f -
+          curl -sL https://raw.githubusercontent.com/external-secrets/external-secrets/main/config/crds/bases/external-secrets.io_externalsecrets.yaml | kubectl apply -f -
+          curl -sL https://raw.githubusercontent.com/external-secrets/external-secrets/main/config/crds/bases/external-secrets.io_clustersecretstores.yaml | kubectl apply -f -
+          
+          # Wait for CRDs to be established
+          echo "Waiting for CRDs to be established..."
+          kubectl wait --for condition=established --timeout=60s crd/secretstores.external-secrets.io || true
+          kubectl wait --for condition=established --timeout=60s crd/externalsecrets.external-secrets.io || true
+          kubectl wait --for condition=established --timeout=60s crd/clustersecretstores.external-secrets.io || true
+          
+          # Sleep to ensure CRDs are fully ready
+          echo "Sleeping for 30 seconds to ensure CRDs are fully ready..."
+          sleep 30
+          
+          # Install the operator
+          echo "Installing External Secrets Operator..."
           kubectl create namespace external-secrets --dry-run=client -o yaml | kubectl apply -f -
           
+          helm repo add external-secrets https://charts.external-secrets.io
+          helm repo update
+          
+          helm upgrade --install external-secrets external-secrets/external-secrets \
+            --namespace external-secrets \
+            --create-namespace \
+            --set installCRDs=false \
+            --wait --timeout 5m
+      
+      - name: Create Service Account for External Secrets
+        run: |
           # Create service account with IAM role annotation
           cat <<EOF | kubectl apply -f -
           apiVersion: v1
@@ -313,6 +307,10 @@ jobs:
       
       - name: Create SecretStore
         run: |
+          # Verify CRDs are installed
+          echo "Verifying CRDs are installed..."
+          kubectl get crd | grep external-secrets.io
+          
           # Create SecretStore resource
           cat <<EOF | kubectl apply -f -
           apiVersion: external-secrets.io/v1beta1
