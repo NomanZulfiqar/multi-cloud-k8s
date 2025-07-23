@@ -157,8 +157,9 @@ jobs:
         id: ecr-url
         working-directory: ./eks/terraform
         run: |
-          # Extract just the repository URL without debug info
-          ECR_REPOSITORY_URL=$(terraform output -raw ecr_repository_url 2>/dev/null | sed 's/::debug::.*$//')
+          # Use a hardcoded ECR URL format instead of trying to parse the output
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_REPOSITORY_URL="${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/myapp"
           echo "ECR_REPOSITORY_URL=$ECR_REPOSITORY_URL" >> $GITHUB_OUTPUT
 
       - name: Build and push Docker image
@@ -208,10 +209,11 @@ jobs:
         working-directory: ./eks/terraform
         run: |
           CLUSTER_NAME="my-eks-cluster"
-          # Extract just the repository URL without debug info
-          ECR_URL=$(terraform output -raw ecr_repository_url 2>/dev/null | sed 's/::debug::.*$//')
-          # Extract just the role ARN without debug info
-          ROLE_ARN=$(terraform output -raw aws_iam_role_external_secrets_arn 2>/dev/null | sed 's/::debug::.*$//' || echo "")
+          # Use a hardcoded ECR URL format
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_URL="${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/myapp"
+          # Use a hardcoded role ARN format
+          ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/aws-load-balancer-controller"
           echo "CLUSTER_NAME=$CLUSTER_NAME" >> $GITHUB_OUTPUT
           echo "ECR_REPOSITORY_URL=$ECR_URL" >> $GITHUB_OUTPUT
           echo "EXTERNAL_SECRETS_ROLE_ARN=$ROLE_ARN" >> $GITHUB_OUTPUT
