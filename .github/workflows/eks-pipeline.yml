@@ -123,8 +123,8 @@ jobs:
           echo "CLUSTER_NAME=$(terraform output -raw cluster_name)" >> $GITHUB_OUTPUT
           echo "REGION=$(terraform output -raw region)" >> $GITHUB_OUTPUT
 
-  deploy-kubernetes:
-    name: Deploy to Kubernetes
+  build-and-push:
+    name: Build and Push Docker Image
     needs: terraform-apply
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
@@ -140,6 +140,54 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.0.0
+
+      - name: Terraform Init
+        working-directory: ./eks/terraform
+        run: terraform init -upgrade
+
+      - name: Get ECR Repository URL
+        id: ecr-url
+        working-directory: ./eks/terraform
+        run: |
+          ECR_REPOSITORY_URL=$(terraform output -raw ecr_repository_url)
+          echo "ECR_REPOSITORY_URL=$ECR_REPOSITORY_URL" >> $GITHUB_OUTPUT
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./eks/app
+          push: true
+          tags: ${{ steps.ecr-url.outputs.ECR_REPOSITORY_URL }}:latest
+
+  deploy-kubernetes:
+    name: Deploy to Kubernetes
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
       - name: Setup kubectl
         uses: azure/setup-kubectl@v3
         with:
@@ -154,24 +202,61 @@ jobs:
         working-directory: ./eks/terraform
         run: terraform init -upgrade
 
-      - name: Get Cluster Info
+      - name: Get Outputs
+        id: terraform-outputs
         working-directory: ./eks/terraform
         run: |
           CLUSTER_NAME=$(terraform output -raw cluster_name)
-          echo "Using cluster: $CLUSTER_NAME in region $AWS_REGION"
+          ECR_REPOSITORY_URL=$(terraform output -raw ecr_repository_url)
+          EXTERNAL_SECRETS_ROLE_ARN=$(terraform output -raw aws_iam_role_external_secrets_arn || echo "")
+          echo "CLUSTER_NAME=$CLUSTER_NAME" >> $GITHUB_OUTPUT
+          echo "ECR_REPOSITORY_URL=$ECR_REPOSITORY_URL" >> $GITHUB_OUTPUT
+          echo "EXTERNAL_SECRETS_ROLE_ARN=$EXTERNAL_SECRETS_ROLE_ARN" >> $GITHUB_OUTPUT
 
       - name: Update kubeconfig
         run: aws eks update-kubeconfig --name my-eks-cluster --region ${{ env.AWS_REGION }}
+
+      - name: Create ECR Pull Secret
+        run: |
+          kubectl create secret docker-registry aws-ecr-secret \
+            --docker-server=${{ steps.terraform-outputs.outputs.ECR_REPOSITORY_URL }} \
+            --docker-username=AWS \
+            --docker-password=$(aws ecr get-login-password) \
+            --namespace=default \
+            --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Install Helm
         uses: azure/setup-helm@v3
         with:
           version: 'v3.8.0'
 
+      - name: Install External Secrets Operator
+        run: |
+          helm repo add external-secrets https://charts.external-secrets.io
+          helm upgrade --install external-secrets external-secrets/external-secrets \
+            --namespace external-secrets \
+            --create-namespace
+
+      - name: Apply External Secrets Resources
+        run: |
+          # Replace variables in YAML files
+          sed -i "s|\${EXTERNAL_SECRETS_ROLE_ARN}|${{ steps.terraform-outputs.outputs.EXTERNAL_SECRETS_ROLE_ARN }}|g" ./eks/kubernetes/external-secrets/service-account.yaml
+          
+          # Apply resources
+          kubectl apply -f ./eks/kubernetes/external-secrets/namespace.yaml
+          kubectl apply -f ./eks/kubernetes/external-secrets/service-account.yaml
+          kubectl apply -f ./eks/kubernetes/external-secrets/secret-store.yaml
+          kubectl apply -f ./eks/kubernetes/external-secrets/external-secret.yaml
+
       - name: Deploy Database
         run: |
           helm repo add bitnami https://charts.bitnami.com/bitnami
           helm upgrade --install postgres bitnami/postgresql -f ./eks/helm-charts/database/postgres-values.yaml
+
+      - name: Prepare Application Values
+        run: |
+          # Replace ECR repository URL in values.yaml
+          sed -i "s|\${ECR_REPOSITORY_URL}|${{ steps.terraform-outputs.outputs.ECR_REPOSITORY_URL }}|g" ./eks/helm-charts/application/values.yaml
 
       - name: Deploy Application
         run: |

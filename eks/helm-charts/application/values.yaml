@@ -1,9 +1,13 @@
 replicaCount: 1
 
 image:
-  repository: nginx  # Using nginx as a sample application
+  # This will be replaced with the actual ECR URL in the deploy step
+  repository: ${ECR_REPOSITORY_URL}
   tag: latest
   pullPolicy: Always
+
+imagePullSecrets:
+  - name: aws-ecr-secret
 
 service:
   type: LoadBalancer
@@ -39,9 +43,15 @@ env:
   - name: DB_NAME
     value: "app_database"
   - name: DB_USER
-    value: "app_user"
+    valueFrom:
+      secretKeyRef:
+        name: db-credentials
+        key: username
   - name: DB_PASSWORD
-    value: "app_password"  # In production, use Kubernetes secrets
+    valueFrom:
+      secretKeyRef:
+        name: db-credentials
+        key: password
   # Redis cache configuration
   - name: REDIS_HOST
     value: "eks-redis.nlt4fi.0001.use1.cache.amazonaws.com"  # Will be replaced when deploying

@@ -68,6 +68,9 @@ module "eks" {
   cloudwatch_log_group_kms_key_id = ""
   cluster_enabled_log_types = ["api", "audit"]
   
+  # Enable IRSA (IAM Roles for Service Accounts)
+  enable_irsa = true
+  
   # Prevent changes to existing resources
   cluster_timeouts = {
     create = "30m"
