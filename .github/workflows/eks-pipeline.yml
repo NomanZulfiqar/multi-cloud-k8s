@@ -261,10 +261,31 @@ jobs:
 
       - name: Install External Secrets Operator
         run: |
-          # Clean up any existing External Secrets resources
-          echo "Cleaning up existing External Secrets resources..."
-          kubectl delete deployment external-secrets -n external-secrets || true
-          kubectl delete serviceaccount external-secrets -n external-secrets || true
+          # Delete entire namespace to clean up completely
+          echo "Cleaning up External Secrets namespace..."
+          kubectl delete namespace external-secrets || true
+          
+          # Wait for namespace deletion
+          echo "Waiting for namespace deletion..."
+          sleep 15
+          
+          # Install External Secrets Operator using Helm
+          echo "Installing External Secrets Operator..."
+          helm repo add external-secrets https://charts.external-secrets.io
+          helm repo update
+          
+          # Install with CRDs
+          helm install external-secrets external-secrets/external-secrets \
+            --namespace external-secrets \
+            --create-namespace \
+            --set installCRDs=true \
+            --timeout 5m \
+            --wait
+          
+          # Verify installation
+          echo "Verifying External Secrets Operator installation..."
+          kubectl get pods -n external-secrets
+          kubectl get crd | grep external-secrets.io-secrets -n external-secrets || true
           helm uninstall external-secrets -n external-secrets || true
           
           # Wait a bit for cleanup
