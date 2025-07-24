@@ -213,8 +213,15 @@ jobs:
       - name: Get AKS credentials
         run: az aks get-credentials --resource-group ${{ steps.terraform-outputs.outputs.RESOURCE_GROUP }} --name ${{ steps.terraform-outputs.outputs.CLUSTER_NAME }}
       
-      - name: Attach ACR to AKS
-        run: az aks update -n ${{ steps.terraform-outputs.outputs.CLUSTER_NAME }} -g ${{ steps.terraform-outputs.outputs.RESOURCE_GROUP }} --attach-acr myappacr2024
+      - name: Create ACR pull secret
+        run: |
+          ACR_PASSWORD=$(az acr credential show --name myappacr2024 --query passwords[0].value -o tsv)
+          kubectl create secret docker-registry acr-secret \
+            --docker-server=myappacr2024.azurecr.io \
+            --docker-username=myappacr2024 \
+            --docker-password=$ACR_PASSWORD \
+            --namespace=default \
+            --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Install Helm
         uses: azure/setup-helm@v3
