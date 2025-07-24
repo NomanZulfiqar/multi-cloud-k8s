@@ -45,16 +45,27 @@ jobs:
           
       - name: Clean up Kubernetes resources
         run: |
-          # Update kubeconfig
-          aws eks update-kubeconfig --name my-eks-cluster --region ${{ env.AWS_REGION }}
+          # Update kubeconfig (may fail if cluster doesn't exist)
+          aws eks update-kubeconfig --name my-eks-cluster --region ${{ env.AWS_REGION }} || echo "Cluster may not exist, continuing"
           
-          # Delete Helm releases
-          echo "Deleting Helm releases..."
-          helm ls -A -q | xargs -r helm uninstall || echo "No Helm releases to delete"
-          
-          # Delete namespaces
-          echo "Deleting external-secrets namespace..."
-          kubectl delete namespace external-secrets --ignore-not-found=true
+          # Only proceed if cluster exists
+          if kubectl cluster-info &>/dev/null; then
+            echo "Cluster accessible, cleaning up resources..."
+            
+            # Delete Helm releases
+            echo "Deleting Helm releases..."
+            helm ls -A -q | xargs -r helm uninstall || echo "No Helm releases to delete"
+            
+            # Delete external-secrets namespace
+            echo "Deleting external-secrets namespace..."
+            kubectl delete namespace external-secrets --ignore-not-found=true
+            
+            # Delete any other application resources
+            echo "Deleting application resources..."
+            kubectl delete all --all -n default || echo "No resources to delete"
+          else
+            echo "Cluster not accessible, skipping Kubernetes cleanup"
+          fi
 
       - name: Get EKS Resources
         id: get-resources
