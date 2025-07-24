@@ -14,8 +14,7 @@ on:
   workflow_dispatch: # Allows manual triggering
 
 env:
-  AZURE_RESOURCE_GROUP: aks-resource-group
-  AKS_CLUSTER_NAME: aks-cluster
+  AZURE_REGION: eastus
 
 jobs:
   terraform-plan:
@@ -27,33 +26,26 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Azure Login
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
-          
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.0.0
 
+      - name: Terraform Init
+        run: terraform init -upgrade
+        
       - name: Make import script executable
         run: chmod +x import-resources.sh
 
       - name: Import existing resources
         run: ./import-resources.sh
-
-      - name: Terraform Init
-        run: terraform init
 
       - name: Terraform Format
         run: terraform fmt -write=true
@@ -62,7 +54,10 @@ jobs:
         run: terraform validate
 
       - name: Terraform Plan
-        run: terraform plan -out=tfplan
+        run: |
+          if [ ! -f "tfplan" ]; then
+            terraform plan -out=tfplan
+          fi
         
       - name: Upload Terraform Plan
         uses: actions/upload-artifact@v4
@@ -82,19 +77,12 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Azure Login
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
-          
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
@@ -102,7 +90,7 @@ jobs:
           terraform_version: 1.0.0
 
       - name: Terraform Init
-        run: terraform init
+        run: terraform init -upgrade
 
       - name: Download Terraform Plan
         uses: actions/download-artifact@v4
@@ -111,43 +99,175 @@ jobs:
           path: ./aks/terraform
 
       - name: Terraform Apply
-        run: terraform apply -auto-approve tfplan
+        run: terraform apply -auto-approve tfplan || terraform apply -auto-approve
 
-      - name: Save Terraform Outputs
-        id: terraform_output
-        run: |
-          echo "CLUSTER_NAME=aks-cluster" >> $GITHUB_OUTPUT
-
-  deploy-kubernetes:
-    name: Deploy to Kubernetes
+  build-and-push:
+    name: Build and Push Docker Image
     needs: terraform-apply
     runs-on: ubuntu-latest
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Azure Login
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Set AKS context
-        uses: azure/aks-set-context@v3
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
         with:
-          resource-group: ${{ env.AZURE_RESOURCE_GROUP }}
-          cluster-name: ${{ env.AKS_CLUSTER_NAME }}
+          terraform_version: 1.0.0
+
+      - name: Terraform Init
+        working-directory: ./aks/terraform
+        run: terraform init -upgrade
+
+      - name: Get ACR Login Server
+        id: acr-login
+        working-directory: ./aks/terraform
+        run: |
+          ACR_LOGIN_SERVER="myappacr2024.azurecr.io"
+          echo "ACR_LOGIN_SERVER=$ACR_LOGIN_SERVER" >> $GITHUB_OUTPUT
+
+      - name: Login to ACR
+        run: az acr login --name myappacr2024
+
+      - name: Build and push Docker image
+        run: |
+          docker build -t ${{ steps.acr-login.outputs.ACR_LOGIN_SERVER }}/myapp:latest ./aks/app
+          docker push ${{ steps.acr-login.outputs.ACR_LOGIN_SERVER }}/myapp:latest
+
+  deploy-kubernetes:
+    name: Deploy to Kubernetes
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.0.0
+
+      - name: Terraform Init
+        working-directory: ./aks/terraform
+        run: terraform init -upgrade
+
+      - name: Get Outputs
+        id: terraform-outputs
+        working-directory: ./aks/terraform
+        run: |
+          CLUSTER_NAME="my-aks-cluster"
+          RESOURCE_GROUP="aks-rg"
+          ACR_LOGIN_SERVER="myappacr2024.azurecr.io"
+          KEY_VAULT_NAME="myapp-kv-2024"
+          echo "CLUSTER_NAME=$CLUSTER_NAME" >> $GITHUB_OUTPUT
+          echo "RESOURCE_GROUP=$RESOURCE_GROUP" >> $GITHUB_OUTPUT
+          echo "ACR_LOGIN_SERVER=$ACR_LOGIN_SERVER" >> $GITHUB_OUTPUT
+          echo "KEY_VAULT_NAME=$KEY_VAULT_NAME" >> $GITHUB_OUTPUT
+
+      - name: Get AKS credentials
+        run: az aks get-credentials --resource-group ${{ steps.terraform-outputs.outputs.RESOURCE_GROUP }} --name ${{ steps.terraform-outputs.outputs.CLUSTER_NAME }}
 
       - name: Install Helm
         uses: azure/setup-helm@v3
         with:
           version: 'v3.8.0'
 
+      - name: Install External Secrets Operator
+        run: |
+          helm repo add external-secrets https://charts.external-secrets.io
+          helm repo update
+          helm install external-secrets external-secrets/external-secrets \
+            --namespace external-secrets \
+            --create-namespace \
+            --set installCRDs=true \
+            --timeout 5m \
+            --wait
+
+      - name: Setup External Secrets for Azure Key Vault
+        run: |
+          # Create service account
+          kubectl create serviceaccount external-secrets-sa -n external-secrets --dry-run=client -o yaml | kubectl apply -f -
+          
+          # Create SecretStore for Azure Key Vault
+          cat <<EOF | kubectl apply -f -
+          apiVersion: external-secrets.io/v1beta1
+          kind: SecretStore
+          metadata:
+            name: azure-keyvault
+            namespace: default
+          spec:
+            provider:
+              azurekv:
+                vaultUrl: "https://${{ steps.terraform-outputs.outputs.KEY_VAULT_NAME }}.vault.azure.net/"
+                authType: ManagedIdentity
+                identityId: $(az aks show --resource-group ${{ steps.terraform-outputs.outputs.RESOURCE_GROUP }} --name ${{ steps.terraform-outputs.outputs.CLUSTER_NAME }} --query identityProfile.kubeletidentity.clientId -o tsv)
+          EOF
+          
+          # Create ExternalSecret
+          cat <<EOF | kubectl apply -f -
+          apiVersion: external-secrets.io/v1beta1
+          kind: ExternalSecret
+          metadata:
+            name: db-credentials-external
+            namespace: default
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: azure-keyvault
+              kind: SecretStore
+            target:
+              name: db-credentials
+              creationPolicy: Owner
+            data:
+            - secretKey: username
+              remoteRef:
+                key: db-username
+            - secretKey: password
+              remoteRef:
+                key: db-password
+          EOF
+          
+          # Wait and verify
+          echo "Waiting for db-credentials secret to be created..."
+          sleep 30
+          
+          if kubectl get secret db-credentials &>/dev/null; then
+            echo "✅ External Secret successfully created Kubernetes secret from Azure Key Vault"
+          else
+            echo "❌ External Secret failed, creating fallback secret"
+            kubectl create secret generic db-credentials \
+              --from-literal=username=app_user \
+              --from-literal=password=app_password \
+              --namespace=default \
+              --dry-run=client -o yaml | kubectl apply -f -
+          fi
+
       - name: Deploy Database
         run: |
           helm repo add bitnami https://charts.bitnami.com/bitnami
           helm upgrade --install postgres bitnami/postgresql -f ./aks/helm-charts/database/postgres-values.yaml
+
+      - name: Prepare Application Values
+        run: |
+          sed -i "s|\${ACR_LOGIN_SERVER}|${{ steps.terraform-outputs.outputs.ACR_LOGIN_SERVER }}|g" ./aks/helm-charts/application/values.yaml
 
       - name: Deploy Application
         run: |

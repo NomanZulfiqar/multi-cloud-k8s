@@ -4,8 +4,7 @@ on:
   workflow_dispatch:  # Manual trigger only
 
 env:
-  AZURE_RESOURCE_GROUP: aks-resource-group
-  AKS_CLUSTER_NAME: aks-cluster
+  AZURE_REGION: eastus
 
 jobs:
   terraform-destroy:
@@ -17,32 +16,62 @@ jobs:
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Azure Login
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
-        
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.0.0
 
-      - name: Remove prevent_destroy flags
-        run: |
-          sed -i 's/prevent_destroy = true/prevent_destroy = false/g' *.tf
-          sed -i 's/lifecycle {/lifecycle {\n    prevent_destroy = false/g' *.tf
-
       - name: Terraform Init
-        run: terraform init
+        run: terraform init -upgrade
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'v3.8.0'
+          
+      - name: Clean up Kubernetes resources
+        run: |
+          # Get AKS credentials (may fail if cluster doesn't exist)
+          az aks get-credentials --resource-group aks-rg --name my-aks-cluster || echo "Cluster may not exist, continuing"
+          
+          # Only proceed if cluster exists
+          if kubectl cluster-info &>/dev/null; then
+            echo "Cluster accessible, cleaning up resources..."
+            
+            # Delete Helm releases with timeout
+            echo "Deleting Helm releases..."
+            timeout 60s helm ls -A -q | xargs -r helm uninstall || echo "No Helm releases to delete"
+            
+            # Delete external-secrets namespace with timeout
+            echo "Deleting external-secrets namespace..."
+            kubectl delete namespace external-secrets --ignore-not-found=true --timeout=60s || echo "Namespace deletion timed out, continuing"
+            
+            # Delete application resources with timeout
+            echo "Deleting application resources..."
+            timeout 60s kubectl delete all --all -n default || echo "Resource deletion timed out or no resources to delete"
+            
+            echo "Kubernetes cleanup completed"
+          else
+            echo "Cluster not accessible, skipping Kubernetes cleanup"
+          fi
+
+      - name: Clean up ACR images
+        run: |
+          echo "Cleaning up ACR images..."
+          az acr repository list --name myappacr2024 --output table || echo "ACR may not exist"
+          az acr repository delete --name myappacr2024 --repository myapp --yes || echo "Repository may not exist"
 
       - name: Terraform Destroy
         run: terraform destroy -auto-approve

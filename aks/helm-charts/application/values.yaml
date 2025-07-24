@@ -1,7 +1,7 @@
 replicaCount: 1
 
 image:
-  repository: nginx  # Using nginx as a sample application
+  repository: ${ACR_LOGIN_SERVER}/myapp
   tag: latest
   pullPolicy: Always
 
@@ -11,16 +11,7 @@ service:
   targetPort: 80
 
 ingress:
-  enabled: true
-  ingressClassName: alb
-  annotations:
-    alb.ingress.kubernetes.io/scheme: internet-facing
-    alb.ingress.kubernetes.io/target-type: ip
-  hosts:
-    - host: ""  # No domain required
-      paths:
-        - path: /
-          pathType: Prefix
+  enabled: false
 
 resources:
   requests:
@@ -30,20 +21,24 @@ resources:
     cpu: 50m
     memory: 64Mi
 
-# Environment variables will be populated from Terraform outputs
 env:
   - name: DB_HOST
-    value: "eks-postgres.cyjm8aommiol.us-east-1.rds.amazonaws.com:5432"  # Will be replaced by the deploy script
+    value: "myapp-postgres-2024.postgres.database.azure.com"
   - name: DB_PORT
     value: "5432"
   - name: DB_NAME
     value: "app_database"
   - name: DB_USER
-    value: "app_user"
+    valueFrom:
+      secretKeyRef:
+        name: db-credentials
+        key: username
   - name: DB_PASSWORD
-    value: "app_password"  # In production, use Kubernetes secrets
-  # Redis cache configuration
+    valueFrom:
+      secretKeyRef:
+        name: db-credentials
+        key: password
   - name: REDIS_HOST
-    value: "eks-redis.nlt4fi.0001.use1.cache.amazonaws.com"  # Will be replaced when deploying
+    value: "myapp-redis-2024.redis.cache.windows.net"
   - name: REDIS_PORT
     value: "6379"
