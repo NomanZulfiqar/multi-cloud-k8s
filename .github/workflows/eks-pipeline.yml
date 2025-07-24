@@ -259,12 +259,19 @@ jobs:
             --secret-string '{"username":"app_user","password":"app_password"}' \
             --region us-east-1 || echo "Secret may already exist, continuing"
 
-      - name: Setup External Secrets and Create Database Secret
+      - name: Create Database Secret
         run: |
-          # Check if External Secrets is already installed
-          if kubectl get namespace external-secrets &>/dev/null; then
-            echo "External Secrets namespace exists, checking installation..."
-            if kubectl get pods -n external-secrets | grep -q Running; then
+          # Create database credentials secret directly
+          echo "Creating database credentials secret..."
+          kubectl create secret generic db-credentials \
+            --from-literal=username=app_user \
+            --from-literal=password=app_password \
+            --namespace=default \
+            --dry-run=client -o yaml | kubectl apply -f -
+          
+          # Verify the secret was created
+          echo "Verifying secret was created..."
+          kubectl get secret db-credentials -o yaml external-secrets | grep -q Running; then
               echo "External Secrets Operator is already running"
             else
               echo "Reinstalling External Secrets Operator..."
