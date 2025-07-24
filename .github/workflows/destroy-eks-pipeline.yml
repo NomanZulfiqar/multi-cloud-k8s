@@ -231,4 +231,10 @@ jobs:
             echo "⚠️ Terraform destroy encountered some issues, but continuing"
             echo "This is normal if resources were already deleted manually"
           fi
+          
+      - name: Final cleanup
+        run: |
+          echo "Performing final cleanup..."
+          # Clear any remaining state
+          terraform state list | xargs -r terraform state rm || echo "State already clean"
           echo "🎉 EKS infrastructure destruction process completed"

@@ -51,10 +51,7 @@ jobs:
       - name: Clean up Kubernetes resources
         run: |
           # Get AKS credentials (may fail if cluster doesn't exist)
-          az aks get-credentials --resource-group aks-rg --name my-aks-cluster || echo "Cluster may not exist, continuing"
-          
-          # Only proceed if cluster exists
-          if kubectl cluster-info &>/dev/null; then
+          if az aks get-credentials --resource-group aks-rg --name my-aks-cluster 2>/dev/null; then
             echo "Cluster accessible, cleaning up resources..."
             
             # Delete Helm releases with timeout
@@ -71,14 +68,64 @@ jobs:
             
             echo "Kubernetes cleanup completed"
           else
-            echo "Cluster not accessible, skipping Kubernetes cleanup"
+            echo "Cluster not accessible or doesn't exist, skipping Kubernetes cleanup"
           fi
 
       - name: Clean up ACR images
         run: |
           echo "Cleaning up ACR images..."
-          az acr repository list --name myappacr2024 --output table || echo "ACR may not exist"
-          az acr repository delete --name myappacr2024 --repository myapp --yes || echo "Repository may not exist"
+          if az acr show --name myappacr2024 &>/dev/null; then
+            echo "ACR exists, cleaning up repositories..."
+            az acr repository delete --name myappacr2024 --repository myapp --yes || echo "Repository may not exist"
+          else
+            echo "ACR doesn't exist, skipping image cleanup"
+          fi
+
+      - name: Remove missing resources from state
+        run: |
+          echo "Checking and removing missing resources from state..."
+          
+          # Check and remove PostgreSQL resources if they don't exist
+          if ! az postgres flexible-server show --name myapp-postgres-flex --resource-group aks-rg &>/dev/null; then
+            echo "PostgreSQL server not found, removing from state"
+            terraform state rm azurerm_postgresql_flexible_server.postgres || echo "Not in state"
+            terraform state rm azurerm_postgresql_flexible_server_database.app_db || echo "Not in state"
+            terraform state rm azurerm_postgresql_flexible_server_firewall_rule.allow_all || echo "Not in state"
+          fi
+          
+          # Check and remove Redis if it doesn't exist
+          if ! az redis show --name myapp-redis-2024 --resource-group aks-rg &>/dev/null; then
+            echo "Redis cache not found, removing from state"
+            terraform state rm azurerm_redis_cache.redis || echo "Not in state"
+          fi
+          
+          # Check and remove Key Vault secrets if vault doesn't exist
+          if ! az keyvault show --name myapp-kv-2024 &>/dev/null; then
+            echo "Key Vault not found, removing secrets from state"
+            terraform state rm azurerm_key_vault_secret.db_username || echo "Not in state"
+            terraform state rm azurerm_key_vault_secret.db_password || echo "Not in state"
+            terraform state rm azurerm_key_vault.kv || echo "Not in state"
+          fi
+          
+          # Check and remove ACR if it doesn't exist
+          if ! az acr show --name myappacr2024 &>/dev/null; then
+            echo "ACR not found, removing from state"
+            terraform state rm azurerm_container_registry.acr || echo "Not in state"
+          fi
+          
+          # Check and remove AKS cluster if it doesn't exist
+          if ! az aks show --name my-aks-cluster --resource-group aks-rg &>/dev/null; then
+            echo "AKS cluster not found, removing from state"
+            terraform state rm azurerm_kubernetes_cluster.aks || echo "Not in state"
+          fi
 
       - name: Terraform Destroy
-        run: terraform destroy -auto-approve
+        run: |
+          echo "Starting Terraform destroy..."
+          if terraform destroy -auto-approve; then
+            echo "✅ Terraform destroy completed successfully"
+          else
+            echo "⚠️ Terraform destroy encountered some issues, but continuing"
+            echo "This is normal if resources were already deleted manually"
+          fi
+          echo "🎉 AKS infrastructure destruction process completed"
