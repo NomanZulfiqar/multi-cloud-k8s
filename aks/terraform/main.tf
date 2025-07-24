@@ -6,11 +6,12 @@ terraform {
     }
   }
   
-  backend "azurerm" {
-    resource_group_name  = "terraform-state-rg"
-    storage_account_name = "terraformstateaks2024"
-    container_name       = "tfstate"
-    key                  = "aks/terraform.tfstate"
+  backend "s3" {
+    bucket         = "noman-rocket-zulfiqar-terraform-backend-us-east-1"
+    key            = "aks/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "noman-rocket-zulfiqar-terraform-backend-us-east-1.lock"
+    encrypt        = true
   }
 }
 
