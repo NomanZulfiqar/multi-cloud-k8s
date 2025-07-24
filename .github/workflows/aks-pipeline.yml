@@ -212,6 +212,9 @@ jobs:
 
       - name: Get AKS credentials
         run: az aks get-credentials --resource-group ${{ steps.terraform-outputs.outputs.RESOURCE_GROUP }} --name ${{ steps.terraform-outputs.outputs.CLUSTER_NAME }}
+      
+      - name: Attach ACR to AKS
+        run: az aks update -n ${{ steps.terraform-outputs.outputs.CLUSTER_NAME }} -g ${{ steps.terraform-outputs.outputs.RESOURCE_GROUP }} --attach-acr myappacr2024
 
       - name: Install Helm
         uses: azure/setup-helm@v3

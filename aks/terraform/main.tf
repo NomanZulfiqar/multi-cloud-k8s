@@ -103,50 +103,35 @@ resource "azurerm_kubernetes_cluster" "aks" {
   }
 }
 
-# Role assignment for ACR
-resource "azurerm_role_assignment" "aks_acr" {
-  principal_id                     = azurerm_kubernetes_cluster.aks.kubelet_identity[0].object_id
-  role_definition_name             = "AcrPull"
-  scope                            = azurerm_container_registry.acr.id
-  skip_service_principal_aad_check = true
+# Note: ACR integration will be handled via attach-acr command in pipeline
+
+# PostgreSQL Flexible Server
+resource "azurerm_postgresql_flexible_server" "postgres" {
+  name                   = "myapp-postgres-2024"
+  resource_group_name    = azurerm_resource_group.main.name
+  location               = azurerm_resource_group.main.location
+  version                = "13"
+  administrator_login    = "app_user"
+  administrator_password = "app_password"
+  
+  storage_mb = 32768
+  sku_name   = "B_Standard_B1ms"
+  
+  backup_retention_days = 7
 }
 
-# PostgreSQL Server
-resource "azurerm_postgresql_server" "postgres" {
-  name                = "myapp-postgres-2024"
-  location            = azurerm_resource_group.main.location
-  resource_group_name = azurerm_resource_group.main.name
-
-  administrator_login          = "app_user"
-  administrator_login_password = "app_password"
-
-  sku_name   = "B_Gen5_1"
-  version    = "11"
-  storage_mb = 5120
-
-  backup_retention_days        = 7
-  geo_redundant_backup_enabled = false
-  auto_grow_enabled            = true
-
-  public_network_access_enabled    = true
-  ssl_enforcement_enabled          = false
-  ssl_minimal_tls_version_enforced = "TLSEnforcementDisabled"
+resource "azurerm_postgresql_flexible_server_database" "app_db" {
+  name      = "app_database"
+  server_id = azurerm_postgresql_flexible_server.postgres.id
+  charset   = "UTF8"
+  collation = "en_US.utf8"
 }
 
-resource "azurerm_postgresql_database" "app_db" {
-  name                = "app_database"
-  resource_group_name = azurerm_resource_group.main.name
-  server_name         = azurerm_postgresql_server.postgres.name
-  charset             = "UTF8"
-  collation           = "English_United States.1252"
-}
-
-resource "azurerm_postgresql_firewall_rule" "allow_all" {
-  name                = "allow-all"
-  resource_group_name = azurerm_resource_group.main.name
-  server_name         = azurerm_postgresql_server.postgres.name
-  start_ip_address    = "0.0.0.0"
-  end_ip_address      = "255.255.255.255"
+resource "azurerm_postgresql_flexible_server_firewall_rule" "allow_all" {
+  name             = "allow-all"
+  server_id        = azurerm_postgresql_flexible_server.postgres.id
+  start_ip_address = "0.0.0.0"
+  end_ip_address   = "255.255.255.255"
 }
 
 # Redis Cache
@@ -157,8 +142,8 @@ resource "azurerm_redis_cache" "redis" {
   capacity            = 0
   family              = "C"
   sku_name            = "Basic"
-  enable_non_ssl_port = true
-  minimum_tls_version = "1.0"
+  non_ssl_port_enabled = true
+  minimum_tls_version = "1.2"
 }
 
 data "azurerm_client_config" "current" {}
@@ -181,7 +166,7 @@ output "key_vault_name" {
 }
 
 output "postgres_fqdn" {
-  value = azurerm_postgresql_server.postgres.fqdn
+  value = azurerm_postgresql_flexible_server.postgres.fqdn
 }
 
 output "redis_hostname" {
