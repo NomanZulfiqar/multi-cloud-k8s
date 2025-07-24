@@ -227,8 +227,8 @@ jobs:
           # Use a hardcoded ECR URL format
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           ECR_URL="${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/myapp"
-          # Use a hardcoded role ARN format
-          ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/aws-load-balancer-controller"
+          # Use a hardcoded role ARN format for External Secrets
+          ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/external-secrets-role"
           echo "CLUSTER_NAME=$CLUSTER_NAME" >> $GITHUB_OUTPUT
           echo "ECR_REPOSITORY_URL=$ECR_URL" >> $GITHUB_OUTPUT
           echo "EXTERNAL_SECRETS_ROLE_ARN=$ROLE_ARN" >> $GITHUB_OUTPUT
@@ -246,19 +246,7 @@ jobs:
             --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Install Helm
-      - name: Create Database Credentials Secret
-        run: |
-          # Create a direct Kubernetes secret for database credentials
-          echo "Creating database credentials secret..."
-          kubectl create secret generic db-credentials \
-            --from-literal=username=app_user \
-            --from-literal=password=app_password \
-            --namespace=default \
-            --dry-run=client -o yaml | kubectl apply -f -
-          
-          # Verify the secret was created
-          echo "Verifying secret was created..."
-          kubectl get secret db-credentials        uses: azure/setup-helm@v3
+        uses: azure/setup-helm@v3
         with:
           version: 'v3.8.0'
 
@@ -270,39 +258,135 @@ jobs:
             --name myapp/db-credentials \
             --secret-string '{"username":"app_user","password":"app_password"}' \
             --region us-east-1 || echo "Secret may already exist, continuing"
-      
+
       - name: Install External Secrets Operator
         run: |
-          # Create namespace
-          kubectl create namespace external-secrets --dry-run=client -o yaml | kubectl apply -f -
-          
-          # Create service account for External Secrets
-          kubectl apply -f ./eks/kubernetes/external-secrets/namespace.yaml
-          kubectl apply -f ./eks/kubernetes/external-secrets/service-account.yaml
-          
-          # Annotate service account with IAM role
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/external-secrets-operator"
-          kubectl annotate serviceaccount -n external-secrets external-secrets-sa \
-            eks.amazonaws.com/role-arn=${ROLE_ARN} --overwrite
-          
-          # Install External Secrets CRDs directly
-          echo "Installing External Secrets CRDs directly..."
-          kubectl apply -f https://raw.githubusercontent.com/external-secrets/external-secrets/main/config/crds/bases/external-secrets.io_clustersecretstores.yaml
-          kubectl apply -f https://raw.githubusercontent.com/external-secrets/external-secrets/main/config/crds/bases/external-secrets.io_externalsecrets.yaml
-          kubectl apply -f https://raw.githubusercontent.com/external-secrets/external-secrets/main/config/crds/bases/external-secrets.io_secretstores.yaml
+          # Install External Secrets Operator using kubectl apply
+          echo "Installing External Secrets Operator..."
+          kubectl apply -f https://raw.githubusercontent.com/external-secrets/external-secrets/main/deploy/charts/external-secrets/crds/bundle.yaml
           
           # Wait for CRDs to be established
           echo "Waiting for CRDs to be established..."
           kubectl wait --for condition=established --timeout=60s crd/secretstores.external-secrets.io
           kubectl wait --for condition=established --timeout=60s crd/externalsecrets.external-secrets.io
-          kubectl wait --for condition=established --timeout=60s crd/clustersecretstores.external-secrets.io
           
-          echo "Sleeping for 30 seconds to ensure CRDs are fully ready..."
+          # Install the operator using kubectl
+          kubectl create namespace external-secrets --dry-run=client -o yaml | kubectl apply -f -
+          
+          # Create a simple deployment for External Secrets Operator
+          cat <<EOF | kubectl apply -f -
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: external-secrets
+            namespace: external-secrets
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: external-secrets
+            template:
+              metadata:
+                labels:
+                  app: external-secrets
+              spec:
+                serviceAccountName: external-secrets
+                containers:
+                - name: external-secrets
+                  image: ghcr.io/external-secrets/external-secrets:v0.9.11
+                  args:
+                  - --concurrent=1
+                  - --enable-leader-election
+                  ports:
+                  - containerPort: 8080
+                    name: metrics
+          ---
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: external-secrets
+            namespace: external-secrets
+          EOF
+          
+          # Wait for the operator to be ready
+          echo "Waiting for External Secrets Operator to be ready..."
+          kubectl wait --for=condition=available --timeout=300s deployment/external-secrets -n external-secrets || true
+
+      - name: Create Service Account and External Secret Resources
+        run: |
+          # Create service account with IAM role annotation
+          cat <<EOF | kubectl apply -f -
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: external-secrets-sa
+            namespace: external-secrets
+            annotations:
+              eks.amazonaws.com/role-arn: ${{ steps.terraform-outputs.outputs.EXTERNAL_SECRETS_ROLE_ARN }}
+          EOF
+          
+          # Create SecretStore
+          cat <<EOF | kubectl apply -f -
+          apiVersion: external-secrets.io/v1beta1
+          kind: SecretStore
+          metadata:
+            name: aws-secretsmanager
+            namespace: default
+          spec:
+            provider:
+              aws:
+                service: SecretsManager
+                region: us-east-1
+                auth:
+                  jwt:
+                    serviceAccountRef:
+                      name: external-secrets-sa
+                      namespace: external-secrets
+          EOF
+          
+          # Create ExternalSecret
+          cat <<EOF | kubectl apply -f -
+          apiVersion: external-secrets.io/v1beta1
+          kind: ExternalSecret
+          metadata:
+            name: db-credentials-external
+            namespace: default
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: aws-secretsmanager
+              kind: SecretStore
+            target:
+              name: db-credentials
+              creationPolicy: Owner
+            data:
+            - secretKey: username
+              remoteRef:
+                key: myapp/db-credentials
+                property: username
+            - secretKey: password
+              remoteRef:
+                key: myapp/db-credentials
+                property: password
+          EOF
+          
+          # Wait for the secret to be created
+          echo "Waiting for db-credentials secret to be created..."
           sleep 30
+          kubectl wait --for=condition=ready secret/db-credentials --timeout=60s || true
           
-          # Install External Secrets Operator with increased timeout
-      
+          # Verify the secret was created
+          if kubectl get secret db-credentials &>/dev/null; then
+            echo "✅ External Secret successfully created Kubernetes secret"
+            kubectl get secret db-credentials -o yaml
+          else
+            echo "❌ External Secret failed, creating fallback secret"
+            kubectl create secret generic db-credentials \
+              --from-literal=username=app_user \
+              --from-literal=password=app_password \
+              --namespace=default \
+              --dry-run=client -o yaml | kubectl apply -f -
+          fi
 
       - name: Deploy Database
         run: |

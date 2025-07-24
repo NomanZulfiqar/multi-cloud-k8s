@@ -20,7 +20,7 @@ resource "aws_iam_policy" "secrets_manager_access" {
 }
 
 resource "aws_iam_role" "external_secrets" {
-  name = "eks-external-secrets-role"
+  name = "external-secrets-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17",
