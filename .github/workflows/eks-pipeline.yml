@@ -235,6 +235,17 @@ jobs:
 
       - name: Update kubeconfig
         run: aws eks update-kubeconfig --name my-eks-cluster --region ${{ env.AWS_REGION }}
+      
+      - name: Fix EKS Access
+        run: |
+          # Add root user to aws-auth ConfigMap for cluster access
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          eksctl create iamidentitymapping \
+            --cluster my-eks-cluster \
+            --region us-east-1 \
+            --arn arn:aws:iam::${ACCOUNT_ID}:root \
+            --group system:masters \
+            --username root || echo "Identity mapping may already exist"
 
       - name: Create ECR Pull Secret
         run: |
