@@ -56,13 +56,15 @@ jobs:
             echo "Deleting Helm releases..."
             helm ls -A -q | xargs -r helm uninstall || echo "No Helm releases to delete"
             
-            # Delete external-secrets namespace
+            # Delete external-secrets namespace with timeout
             echo "Deleting external-secrets namespace..."
-            kubectl delete namespace external-secrets --ignore-not-found=true
+            kubectl delete namespace external-secrets --ignore-not-found=true --timeout=60s || echo "Namespace deletion timed out, continuing"
             
-            # Delete any other application resources
+            # Delete any other application resources with timeout
             echo "Deleting application resources..."
-            kubectl delete all --all -n default || echo "No resources to delete"
+            timeout 60s kubectl delete all --all -n default || echo "Resource deletion timed out or no resources to delete"
+            
+            echo "Kubernetes cleanup completed"
           else
             echo "Cluster not accessible, skipping Kubernetes cleanup"
           fi
