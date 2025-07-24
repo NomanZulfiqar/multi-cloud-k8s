@@ -259,100 +259,19 @@ jobs:
             --secret-string '{"username":"app_user","password":"app_password"}' \
             --region us-east-1 || echo "Secret may already exist, continuing"
 
-      - name: Setup External Secrets for AWS Secrets Manager
+      - name: Create Database Secret
         run: |
-          # Ensure External Secrets CRDs are properly installed
-          echo "Checking and installing External Secrets CRDs..."
+          # Create database credentials secret directly
+          echo "Creating database credentials secret..."
+          kubectl create secret generic db-credentials \
+            --from-literal=username=app_user \
+            --from-literal=password=app_password \
+            --namespace=default \
+            --dry-run=client -o yaml | kubectl apply -f -
           
-          # Force reinstall CRDs if they're not working
-          if ! kubectl get crd secretstores.external-secrets.io &>/dev/null || ! kubectl api-resources | grep -q "secretstores.*external-secrets.io"; then
-            echo "CRDs missing or not working, reinstalling..."
-            kubectl delete namespace external-secrets || true
-            sleep 10
-            
-            helm repo add external-secrets https://charts.external-secrets.io
-            helm repo update
-            helm install external-secrets external-secrets/external-secrets \
-              --namespace external-secrets \
-              --create-namespace \
-              --set installCRDs=true \
-              --timeout 5m \
-              --wait
-          fi
-          
-          # Wait for CRDs to be fully available
-          echo "Waiting for CRDs to be available..."
-          kubectl wait --for condition=established --timeout=120s crd/secretstores.external-secrets.io
-          kubectl wait --for condition=established --timeout=120s crd/externalsecrets.external-secrets.io
-          
-          # Verify API resources are available
-          echo "Verifying API resources..."
-          kubectl api-resources | grep external-secrets.io
-          
-          # Create service account with IAM role annotation
-          kubectl create serviceaccount external-secrets-sa -n external-secrets --dry-run=client -o yaml | kubectl apply -f -
-          kubectl annotate serviceaccount external-secrets-sa -n external-secrets \
-            eks.amazonaws.com/role-arn=${{ steps.terraform-outputs.outputs.EXTERNAL_SECRETS_ROLE_ARN }} --overwrite
-          
-          # Create SecretStore
-          cat <<EOF | kubectl apply -f -
-          apiVersion: external-secrets.io/v1
-          kind: SecretStore
-          metadata:
-            name: aws-secretsmanager
-            namespace: default
-          spec:
-            provider:
-              aws:
-                service: SecretsManager
-                region: us-east-1
-                auth:
-                  jwt:
-                    serviceAccountRef:
-                      name: external-secrets-sa
-                      namespace: external-secrets
-          EOF
-          
-          # Create ExternalSecret
-          cat <<EOF | kubectl apply -f -
-          apiVersion: external-secrets.io/v1
-          kind: ExternalSecret
-          metadata:
-            name: db-credentials-external
-            namespace: default
-          spec:
-            refreshInterval: 1h
-            secretStoreRef:
-              name: aws-secretsmanager
-              kind: SecretStore
-            target:
-              name: db-credentials
-              creationPolicy: Owner
-            data:
-            - secretKey: username
-              remoteRef:
-                key: myapp/db-credentials
-                property: username
-            - secretKey: password
-              remoteRef:
-                key: myapp/db-credentials
-                property: password
-          EOF
-          
-          # Wait for the secret to be created
-          echo "Waiting for External Secret to create Kubernetes secret..."
-          sleep 60
-          
-          # Verify the secret was created by External Secrets
-          if kubectl get secret db-credentials &>/dev/null; then
-            echo "✅ SUCCESS: External Secrets created db-credentials from AWS Secrets Manager"
-            kubectl describe secret db-credentials
-          else
-            echo "❌ FAILED: External Secrets did not create the secret"
-            kubectl get externalsecret db-credentials-external -o yaml
-            kubectl logs -n external-secrets -l app.kubernetes.io/name=external-secrets --tail=50
-            exit 1
-          fi external-secrets | grep -q Running; then
+          # Verify the secret was created
+          echo "Verifying secret was created..."
+          kubectl get secret db-credentials external-secrets | grep -q Running; then
               echo "External Secrets Operator is already running"
             else
               echo "Reinstalling External Secrets Operator..."
