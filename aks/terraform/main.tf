@@ -71,13 +71,13 @@ resource "azurerm_key_vault" "kv" {
 # Key Vault Secret
 resource "azurerm_key_vault_secret" "db_username" {
   name         = "db-username"
-  value        = "app_user"
+  value        = "appuser"
   key_vault_id = azurerm_key_vault.kv.id
 }
 
 resource "azurerm_key_vault_secret" "db_password" {
   name         = "db-password"
-  value        = "app_password"
+  value        = "AppPassword123!"
   key_vault_id = azurerm_key_vault.kv.id
 }
 
@@ -107,17 +107,18 @@ resource "azurerm_kubernetes_cluster" "aks" {
 
 # PostgreSQL Flexible Server
 resource "azurerm_postgresql_flexible_server" "postgres" {
-  name                   = "myapp-postgres-2024"
+  name                   = "myapp-postgres-flex"
   resource_group_name    = azurerm_resource_group.main.name
   location               = azurerm_resource_group.main.location
-  version                = "13"
-  administrator_login    = "app_user"
-  administrator_password = "app_password"
+  version                = "14"
+  administrator_login    = "appuser"
+  administrator_password = "AppPassword123!"
   
   storage_mb = 32768
   sku_name   = "B_Standard_B1ms"
   
-  backup_retention_days = 7
+  backup_retention_days        = 7
+  geo_redundant_backup_enabled = false
 }
 
 resource "azurerm_postgresql_flexible_server_database" "app_db" {

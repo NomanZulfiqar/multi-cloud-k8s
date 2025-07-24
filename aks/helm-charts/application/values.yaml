@@ -23,7 +23,7 @@ resources:
 
 env:
   - name: DB_HOST
-    value: "myapp-postgres-2024.postgres.database.azure.com"
+    value: "myapp-postgres-flex.postgres.database.azure.com"
   - name: DB_PORT
     value: "5432"
   - name: DB_NAME

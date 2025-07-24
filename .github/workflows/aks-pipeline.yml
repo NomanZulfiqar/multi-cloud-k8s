@@ -285,8 +285,8 @@ jobs:
           else
             echo "❌ External Secret failed, creating fallback secret"
             kubectl create secret generic db-credentials \
-              --from-literal=username=app_user \
-              --from-literal=password=app_password \
+              --from-literal=username=appuser \
+              --from-literal=password=AppPassword123! \
               --namespace=default \
               --dry-run=client -o yaml | kubectl apply -f -
           fi
