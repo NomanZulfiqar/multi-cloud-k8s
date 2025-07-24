@@ -296,7 +296,7 @@ jobs:
           
           # Create SecretStore
           cat <<EOF | kubectl apply -f -
-          apiVersion: external-secrets.io/v1beta1
+          apiVersion: external-secrets.io/v1
           kind: SecretStore
           metadata:
             name: aws-secretsmanager
@@ -315,7 +315,7 @@ jobs:
           
           # Create ExternalSecret
           cat <<EOF | kubectl apply -f -
-          apiVersion: external-secrets.io/v1beta1
+          apiVersion: external-secrets.io/v1
           kind: ExternalSecret
           metadata:
             name: db-credentials-external
@@ -390,7 +390,7 @@ jobs:
           
           # Create SecretStore
           cat <<EOF | kubectl apply -f -
-          apiVersion: external-secrets.io/v1beta1
+          apiVersion: external-secrets.io/v1
           kind: SecretStore
           metadata:
             name: aws-secretsmanager
@@ -409,7 +409,7 @@ jobs:
           
           # Create ExternalSecret
           cat <<EOF | kubectl apply -f -
-          apiVersion: external-secrets.io/v1beta1
+          apiVersion: external-secrets.io/v1
           kind: ExternalSecret
           metadata:
             name: db-credentials-external
@@ -586,7 +586,7 @@ jobs:
           
           # Create SecretStore
           cat <<EOF | kubectl apply -f -
-          apiVersion: external-secrets.io/v1beta1
+          apiVersion: external-secrets.io/v1
           kind: SecretStore
           metadata:
             name: aws-secretsmanager
@@ -605,7 +605,7 @@ jobs:
           
           # Create ExternalSecret
           cat <<EOF | kubectl apply -f -
-          apiVersion: external-secrets.io/v1beta1
+          apiVersion: external-secrets.io/v1
           kind: ExternalSecret
           metadata:
             name: db-credentials-external
