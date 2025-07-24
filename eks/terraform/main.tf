@@ -105,6 +105,16 @@ module "eks" {
     Environment = "dev"
     Terraform   = "true"
   }
+  
+  # Configure aws-auth to allow your user access
+  manage_aws_auth_configmap = true
+  aws_auth_users = [
+    {
+      userarn  = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
+      username = "root"
+      groups   = ["system:masters"]
+    }
+  ]
 }
 
 #  Outputs for kubectl configuration
