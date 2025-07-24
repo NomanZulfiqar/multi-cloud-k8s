@@ -259,14 +259,106 @@ jobs:
             --secret-string '{"username":"app_user","password":"app_password"}' \
             --region us-east-1 || echo "Secret may already exist, continuing"
 
-      - name: Install External Secrets Operator
+      - name: Setup External Secrets and Create Database Secret
         run: |
-          # Delete entire namespace to clean up completely
-          echo "Cleaning up External Secrets namespace..."
-          kubectl delete namespace external-secrets || true
+          # Check if External Secrets is already installed
+          if kubectl get namespace external-secrets &>/dev/null; then
+            echo "External Secrets namespace exists, checking installation..."
+            if kubectl get pods -n external-secrets | grep -q Running; then
+              echo "External Secrets Operator is already running"
+            else
+              echo "Reinstalling External Secrets Operator..."
+              kubectl delete namespace external-secrets || true
+              sleep 10
+              helm install external-secrets external-secrets/external-secrets \
+                --namespace external-secrets \
+                --create-namespace \
+                --set installCRDs=true \
+                --timeout 5m \
+                --wait
+            fi
+          else
+            echo "Installing External Secrets Operator..."
+            helm repo add external-secrets https://charts.external-secrets.io
+            helm repo update
+            helm install external-secrets external-secrets/external-secrets \
+              --namespace external-secrets \
+              --create-namespace \
+              --set installCRDs=true \
+              --timeout 5m \
+              --wait
+          fi
           
-          # Wait for namespace deletion
-          echo "Waiting for namespace deletion..."
+          # Create service account with IAM role annotation
+          cat <<EOF | kubectl apply -f -
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: external-secrets-sa
+            namespace: external-secrets
+            annotations:
+              eks.amazonaws.com/role-arn: ${{ steps.terraform-outputs.outputs.EXTERNAL_SECRETS_ROLE_ARN }}
+          EOF
+          
+          # Create SecretStore
+          cat <<EOF | kubectl apply -f -
+          apiVersion: external-secrets.io/v1beta1
+          kind: SecretStore
+          metadata:
+            name: aws-secretsmanager
+            namespace: default
+          spec:
+            provider:
+              aws:
+                service: SecretsManager
+                region: us-east-1
+                auth:
+                  jwt:
+                    serviceAccountRef:
+                      name: external-secrets-sa
+                      namespace: external-secrets
+          EOF
+          
+          # Create ExternalSecret
+          cat <<EOF | kubectl apply -f -
+          apiVersion: external-secrets.io/v1beta1
+          kind: ExternalSecret
+          metadata:
+            name: db-credentials-external
+            namespace: default
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: aws-secretsmanager
+              kind: SecretStore
+            target:
+              name: db-credentials
+              creationPolicy: Owner
+            data:
+            - secretKey: username
+              remoteRef:
+                key: myapp/db-credentials
+                property: username
+            - secretKey: password
+              remoteRef:
+                key: myapp/db-credentials
+                property: password
+          EOF
+          
+          # Wait and verify
+          echo "Waiting for db-credentials secret to be created..."
+          sleep 30
+          
+          if kubectl get secret db-credentials &>/dev/null; then
+            echo "✅ External Secret successfully created Kubernetes secret"
+          else
+            echo "❌ External Secret failed, creating fallback secret"
+            kubectl create secret generic db-credentials \
+              --from-literal=username=app_user \
+              --from-literal=password=app_password \
+              --namespace=default \
+              --dry-run=client -o yaml | kubectl apply -f -
+          fiamespace deletion..."
           sleep 15
           
           # Install External Secrets Operator using Helm
