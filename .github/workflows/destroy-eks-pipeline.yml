@@ -162,5 +162,43 @@ jobs:
           
           # Note: We don't delete the ECR repository here as Terraform will handle it
 
+      - name: Remove missing resources from state
+        run: |
+          # Remove resources that don't exist from Terraform state
+          echo "Checking and removing missing resources from state..."
+          
+          # Check and remove Secrets Manager secret if it doesn't exist
+          if ! aws secretsmanager describe-secret --secret-id myapp/db-credentials --region us-east-1 &>/dev/null; then
+            echo "Secrets Manager secret not found, removing from state"
+            terraform state rm aws_secretsmanager_secret.db_credentials || echo "Not in state"
+          fi
+          
+          # Check and remove ElastiCache cluster if it doesn't exist
+          if ! aws elasticache describe-cache-clusters --cache-cluster-id eks-redis &>/dev/null; then
+            echo "ElastiCache cluster not found, removing from state"
+            terraform state rm aws_elasticache_cluster.redis || echo "Not in state"
+            terraform state rm aws_elasticache_subnet_group.cache_subnet_group || echo "Not in state"
+          fi
+          
+          # Check and remove RDS instance if it doesn't exist
+          if ! aws rds describe-db-instances --db-instance-identifier eks-postgres &>/dev/null; then
+            echo "RDS instance not found, removing from state"
+            terraform state rm aws_db_instance.postgres || echo "Not in state"
+            terraform state rm aws_db_subnet_group.postgres || echo "Not in state"
+          fi
+          
+          # Check and remove ECR repository if it doesn't exist
+          if ! aws ecr describe-repositories --repository-names myapp &>/dev/null; then
+            echo "ECR repository not found, removing from state"
+            terraform state rm aws_ecr_repository.myapp || echo "Not in state"
+          fi
+          
+          # Check and remove EKS cluster if it doesn't exist
+          if ! aws eks describe-cluster --name my-eks-cluster &>/dev/null; then
+            echo "EKS cluster not found, removing from state"
+            terraform state rm 'module.eks.aws_eks_cluster.this[0]' || echo "Not in state"
+            terraform state rm 'module.eks.aws_eks_node_group.this["app_nodes"]' || echo "Not in state"
+          fi
+
       - name: Terraform Destroy
         run: terraform destroy -auto-approve
