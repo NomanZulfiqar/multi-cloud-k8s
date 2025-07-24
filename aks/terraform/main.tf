@@ -53,7 +53,8 @@ resource "azurerm_key_vault" "kv" {
       "Delete",
       "Recover",
       "Backup",
-      "Restore"
+      "Restore",
+      "Purge"
     ]
   }
 

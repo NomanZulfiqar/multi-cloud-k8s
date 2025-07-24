@@ -119,6 +119,18 @@ jobs:
             terraform state rm azurerm_kubernetes_cluster.aks || echo "Not in state"
           fi
 
+      - name: Manual Key Vault cleanup
+        run: |
+          echo "Manually cleaning up Key Vault secrets..."
+          # Delete secrets without purging to avoid permission issues
+          az keyvault secret delete --vault-name myapp-kv-2024 --name db-username || echo "Secret may not exist"
+          az keyvault secret delete --vault-name myapp-kv-2024 --name db-password || echo "Secret may not exist"
+          
+          # Wait a bit for deletion to process
+          sleep 10
+          
+          echo "Key Vault secrets cleanup completed"
+
       - name: Terraform Destroy
         run: |
           echo "Starting Terraform destroy..."
