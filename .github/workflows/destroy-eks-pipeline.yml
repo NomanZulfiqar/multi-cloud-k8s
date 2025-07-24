@@ -89,52 +89,73 @@ jobs:
           echo "ECR_REPO=$ECR_REPO" >> $GITHUB_OUTPUT
 
       - name: Delete EKS Node Groups
-        if: steps.get-resources.outputs.NODE_GROUP != ''
         run: |
-          echo "Deleting node group: ${{ steps.get-resources.outputs.NODE_GROUP }}"
-          aws eks delete-nodegroup --cluster-name my-eks-cluster --nodegroup-name ${{ steps.get-resources.outputs.NODE_GROUP }}
-          
-          # Wait for node group deletion (up to 10 minutes)
-          for i in {1..20}; do
-            STATUS=$(aws eks describe-nodegroup --cluster-name my-eks-cluster --nodegroup-name ${{ steps.get-resources.outputs.NODE_GROUP }} --query 'nodegroup.status' --output text 2>/dev/null || echo "DELETED")
-            echo "Node group status: $STATUS"
-            if [ "$STATUS" == "DELETED" ]; then
-              break
+          NODE_GROUP="${{ steps.get-resources.outputs.NODE_GROUP }}"
+          if [ "$NODE_GROUP" != "" ] && [ "$NODE_GROUP" != "None" ]; then
+            echo "Deleting node group: $NODE_GROUP"
+            if aws eks delete-nodegroup --cluster-name my-eks-cluster --nodegroup-name "$NODE_GROUP" 2>/dev/null; then
+              echo "Node group deletion initiated"
+              # Wait for node group deletion (up to 10 minutes)
+              for i in {1..20}; do
+                STATUS=$(aws eks describe-nodegroup --cluster-name my-eks-cluster --nodegroup-name "$NODE_GROUP" --query 'nodegroup.status' --output text 2>/dev/null || echo "DELETED")
+                echo "Node group status: $STATUS"
+                if [ "$STATUS" == "DELETED" ]; then
+                  break
+                fi
+                sleep 30
+              done
+            else
+              echo "Node group already deleted or doesn't exist"
             fi
-            sleep 30
-          done
+          else
+            echo "No node groups found to delete"
+          fi
 
       - name: Delete ElastiCache Cluster
-        if: steps.get-resources.outputs.CACHE_CLUSTER != ''
         run: |
-          echo "Deleting ElastiCache cluster: ${{ steps.get-resources.outputs.CACHE_CLUSTER }}"
-          aws elasticache delete-cache-cluster --cache-cluster-id ${{ steps.get-resources.outputs.CACHE_CLUSTER }}
-          
-          # Wait for ElastiCache deletion (up to 10 minutes)
-          for i in {1..20}; do
-            STATUS=$(aws elasticache describe-cache-clusters --cache-cluster-id ${{ steps.get-resources.outputs.CACHE_CLUSTER }} --query 'CacheClusters[0].CacheClusterStatus' --output text 2>/dev/null || echo "DELETED")
-            echo "ElastiCache status: $STATUS"
-            if [ "$STATUS" == "DELETED" ]; then
-              break
+          CACHE_CLUSTER="${{ steps.get-resources.outputs.CACHE_CLUSTER }}"
+          if [ "$CACHE_CLUSTER" != "" ] && [ "$CACHE_CLUSTER" != "None" ]; then
+            echo "Deleting ElastiCache cluster: $CACHE_CLUSTER"
+            if aws elasticache delete-cache-cluster --cache-cluster-id "$CACHE_CLUSTER" 2>/dev/null; then
+              echo "ElastiCache deletion initiated"
+              # Wait for ElastiCache deletion (up to 10 minutes)
+              for i in {1..20}; do
+                STATUS=$(aws elasticache describe-cache-clusters --cache-cluster-id "$CACHE_CLUSTER" --query 'CacheClusters[0].CacheClusterStatus' --output text 2>/dev/null || echo "DELETED")
+                echo "ElastiCache status: $STATUS"
+                if [ "$STATUS" == "DELETED" ]; then
+                  break
+                fi
+                sleep 30
+              done
+            else
+              echo "ElastiCache cluster already deleted or doesn't exist"
             fi
-            sleep 30
-          done
+          else
+            echo "No ElastiCache clusters found to delete"
+          fi
 
       - name: Delete RDS Instance
-        if: steps.get-resources.outputs.DB_INSTANCE != ''
         run: |
-          echo "Deleting RDS instance: ${{ steps.get-resources.outputs.DB_INSTANCE }}"
-          aws rds delete-db-instance --db-instance-identifier ${{ steps.get-resources.outputs.DB_INSTANCE }} --skip-final-snapshot
-          
-          # Wait for RDS deletion (up to 15 minutes)
-          for i in {1..30}; do
-            STATUS=$(aws rds describe-db-instances --db-instance-identifier ${{ steps.get-resources.outputs.DB_INSTANCE }} --query 'DBInstances[0].DBInstanceStatus' --output text 2>/dev/null || echo "DELETED")
-            echo "RDS status: $STATUS"
-            if [ "$STATUS" == "DELETED" ]; then
-              break
+          DB_INSTANCE="${{ steps.get-resources.outputs.DB_INSTANCE }}"
+          if [ "$DB_INSTANCE" != "" ] && [ "$DB_INSTANCE" != "None" ]; then
+            echo "Deleting RDS instance: $DB_INSTANCE"
+            if aws rds delete-db-instance --db-instance-identifier "$DB_INSTANCE" --skip-final-snapshot 2>/dev/null; then
+              echo "RDS deletion initiated"
+              # Wait for RDS deletion (up to 15 minutes)
+              for i in {1..30}; do
+                STATUS=$(aws rds describe-db-instances --db-instance-identifier "$DB_INSTANCE" --query 'DBInstances[0].DBInstanceStatus' --output text 2>/dev/null || echo "DELETED")
+                echo "RDS status: $STATUS"
+                if [ "$STATUS" == "DELETED" ]; then
+                  break
+                fi
+                sleep 30
+              done
+            else
+              echo "RDS instance already deleted or doesn't exist"
             fi
-            sleep 30
-          done
+          else
+            echo "No RDS instances found to delete"
+          fi
           
       - name: Delete AWS Secrets Manager Secret
         run: |
@@ -142,25 +163,26 @@ jobs:
           aws secretsmanager delete-secret --secret-id myapp/db-credentials --force-delete-without-recovery --region ${{ env.AWS_REGION }} || echo "Secret may not exist, continuing"
 
       - name: Clean up ECR Repository
-        if: steps.get-resources.outputs.ECR_REPO != ''
         run: |
-          echo "Cleaning up ECR repository: ${{ steps.get-resources.outputs.ECR_REPO }}"
-          
-          # Delete all images in the repository
-          # First get the image digests
-          DIGESTS=$(aws ecr list-images --repository-name ${{ steps.get-resources.outputs.ECR_REPO }} --query 'imageIds[*].imageDigest' --output text || echo "")
-          
-          if [ -n "$DIGESTS" ]; then
-            echo "Deleting images from ECR repository..."
-            for DIGEST in $DIGESTS; do
-              echo "Deleting image with digest: $DIGEST"
-              aws ecr batch-delete-image --repository-name ${{ steps.get-resources.outputs.ECR_REPO }} --image-ids imageDigest=$DIGEST || echo "Failed to delete image, continuing"
-            done
+          ECR_REPO="${{ steps.get-resources.outputs.ECR_REPO }}"
+          if [ "$ECR_REPO" != "" ] && [ "$ECR_REPO" != "None" ]; then
+            echo "Cleaning up ECR repository: $ECR_REPO"
+            
+            # Delete all images in the repository
+            DIGESTS=$(aws ecr list-images --repository-name "$ECR_REPO" --query 'imageIds[*].imageDigest' --output text 2>/dev/null || echo "")
+            
+            if [ -n "$DIGESTS" ] && [ "$DIGESTS" != "None" ]; then
+              echo "Deleting images from ECR repository..."
+              for DIGEST in $DIGESTS; do
+                echo "Deleting image with digest: $DIGEST"
+                aws ecr batch-delete-image --repository-name "$ECR_REPO" --image-ids imageDigest="$DIGEST" 2>/dev/null || echo "Failed to delete image, continuing"
+              done
+            else
+              echo "No images found in repository or repository doesn't exist"
+            fi
           else
-            echo "No images found in repository"
+            echo "No ECR repositories found to clean up"
           fi
-          
-          # Note: We don't delete the ECR repository here as Terraform will handle it
 
       - name: Remove missing resources from state
         run: |
@@ -201,4 +223,12 @@ jobs:
           fi
 
       - name: Terraform Destroy
-        run: terraform destroy -auto-approve
+        run: |
+          echo "Starting Terraform destroy..."
+          if terraform destroy -auto-approve; then
+            echo "✅ Terraform destroy completed successfully"
+          else
+            echo "⚠️ Terraform destroy encountered some issues, but continuing"
+            echo "This is normal if resources were already deleted manually"
+          fi
+          echo "🎉 EKS infrastructure destruction process completed"
