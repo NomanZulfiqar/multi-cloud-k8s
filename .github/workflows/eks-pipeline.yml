@@ -236,28 +236,7 @@ jobs:
       - name: Update kubeconfig
         run: aws eks update-kubeconfig --name my-eks-cluster --region ${{ env.AWS_REGION }}
       
-      - name: Fix EKS Access
-        run: |
-          # Add root user to aws-auth ConfigMap for cluster access
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          
-          # Try eksctl first
-          eksctl create iamidentitymapping \
-            --cluster my-eks-cluster \
-            --region us-east-1 \
-            --arn arn:aws:iam::${ACCOUNT_ID}:root \
-            --group system:masters \
-            --username root || echo "eksctl failed, trying kubectl"
-          
-          # If eksctl fails, try direct kubectl approach
-          kubectl patch configmap aws-auth -n kube-system --patch "
-          data:
-            mapUsers: |
-              - userarn: arn:aws:iam::${ACCOUNT_ID}:root
-                username: root
-                groups:
-                  - system:masters
-          " || echo "kubectl patch also failed, but continuing"
+      
 
       - name: Create ECR Pull Secret
         run: |
