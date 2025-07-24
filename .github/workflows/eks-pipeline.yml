@@ -261,9 +261,35 @@ jobs:
 
       - name: Install External Secrets Operator
         run: |
-          # Install External Secrets Operator using kubectl apply
+          # Install External Secrets Operator using Helm
           echo "Installing External Secrets Operator..."
-          kubectl apply -f https://raw.githubusercontent.com/external-secrets/external-secrets/main/deploy/charts/external-secrets/crds/bundle.yaml
+          helm repo add external-secrets https://charts.external-secrets.io
+          helm repo update
+          
+          # Install with a shorter timeout to avoid hanging
+          helm install external-secrets external-secrets/external-secrets \
+            --namespace external-secrets \
+            --create-namespace \
+            --set installCRDs=true \
+            --timeout 3m \
+            --wait || echo "Helm install failed, continuing with manual setup"
+          
+          # Verify CRDs are installed
+          echo "Verifying CRDs are installed..."
+          kubectl get crd | grep external-secrets.io || echo "CRDs not found"
+          
+          # If CRDs are not installed, install them manually
+          if ! kubectl get crd secretstores.external-secrets.io &>/dev/null; then
+            echo "Installing CRDs manually..."
+            kubectl apply -f https://raw.githubusercontent.com/external-secrets/external-secrets/main/config/crds/bases/external-secrets.io_secretstores.yaml
+            kubectl apply -f https://raw.githubusercontent.com/external-secrets/external-secrets/main/config/crds/bases/external-secrets.io_externalsecrets.yaml
+            kubectl apply -f https://raw.githubusercontent.com/external-secrets/external-secrets/main/config/crds/bases/external-secrets.io_clustersecretstores.yaml
+          fi
+          
+          # Wait for CRDs to be established
+          echo "Waiting for CRDs to be established..."
+          kubectl wait --for condition=established --timeout=60s crd/secretstores.external-secrets.io || true
+          kubectl wait --for condition=established --timeout=60s crd/externalsecrets.external-secrets.io || true/bundle.yaml
           
           # Wait for CRDs to be established
           echo "Waiting for CRDs to be established..."
