@@ -103,24 +103,24 @@ jobs:
           name: tfplan
           path: ./eks/terraform
 
-      - name: Import existing resources with proper VPC handling
+      - name: Clean up old subnet groups from different VPCs
         run: |
-          # Get current VPC ID that will be created
-          echo "Checking for existing resources..."
+          echo "Cleaning up old subnet groups from different VPCs..."
           
-          # Import ElastiCache subnet group if it exists and is in correct VPC
-          if aws elasticache describe-cache-subnet-groups --cache-subnet-group-name cache-subnet-group &>/dev/null; then
-            CURRENT_VPC=$(aws elasticache describe-cache-subnet-groups --cache-subnet-group-name cache-subnet-group --query 'CacheSubnetGroups[0].VpcId' --output text)
-            echo "ElastiCache subnet group exists in VPC: $CURRENT_VPC"
-            terraform import aws_elasticache_subnet_group.cache_subnet_group cache-subnet-group || echo "Already in state"
-          fi
+          # Delete ElastiCache subnet group if it exists
+          aws elasticache delete-cache-subnet-group --cache-subnet-group-name cache-subnet-group || echo "ElastiCache subnet group may not exist"
           
-          # Import RDS subnet group if it exists and is in correct VPC
-          if aws rds describe-db-subnet-groups --db-subnet-group-name postgres-subnet-group &>/dev/null; then
-            CURRENT_VPC=$(aws rds describe-db-subnet-groups --db-subnet-group-name postgres-subnet-group --query 'DBSubnetGroups[0].VpcId' --output text)
-            echo "RDS subnet group exists in VPC: $CURRENT_VPC"
-            terraform import aws_db_subnet_group.postgres postgres-subnet-group || echo "Already in state"
-          fi
+          # Delete RDS subnet group if it exists
+          aws rds delete-db-subnet-group --db-subnet-group-name postgres-subnet-group || echo "RDS subnet group may not exist"
+          
+          # Wait for deletion
+          sleep 30
+          
+          echo "Old subnet groups cleaned up"
+
+      - name: Import existing resources
+        run: |
+          echo "Importing existing resources..."
           
           # Import ElastiCache cluster if it exists
           if aws elasticache describe-cache-clusters --cache-cluster-id eks-redis &>/dev/null; then
