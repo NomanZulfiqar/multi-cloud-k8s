@@ -143,6 +143,10 @@ jobs:
               echo "❌ Permission error - this is an authentic error"
               cat apply_output.log
               exit 1
+            elif grep -q "connection refused\|dial tcp.*connect\|localhost.*connection" apply_output.log; then
+              echo "❌ Kubernetes connection error - this is an authentic error"
+              cat apply_output.log
+              exit 1
             else
               echo "⚠️ Apply failed, trying without plan..."
               if ! terraform apply -auto-approve 2>&1 | tee apply_retry.log; then

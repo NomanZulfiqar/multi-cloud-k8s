@@ -4,6 +4,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 4.47.0"  # Pinning to a version compatible with the modules
     }
+    kubernetes = {
+      source  = "hashicorp/kubernetes"
+      version = "~> 2.23.0"
+    }
   }
   
   backend "s3" {
@@ -17,6 +21,22 @@ terraform {
 
 provider "aws" {
   region = "us-east-1"  # Changed to us-east-1 region
+}
+
+# Get current AWS account info
+data "aws_caller_identity" "current" {}
+data "aws_eks_cluster" "cluster" {
+  name = module.eks.cluster_name
+}
+data "aws_eks_cluster_auth" "cluster" {
+  name = module.eks.cluster_name
+}
+
+# Configure Kubernetes provider to connect to EKS
+provider "kubernetes" {
+  host                   = data.aws_eks_cluster.cluster.endpoint
+  cluster_ca_certificate = base64decode(data.aws_eks_cluster.cluster.certificate_authority[0].data)
+  token                  = data.aws_eks_cluster_auth.cluster.token
 }
 
 module "vpc" {
