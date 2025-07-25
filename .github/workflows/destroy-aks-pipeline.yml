@@ -135,23 +135,21 @@ jobs:
         run: |
           echo "Starting Terraform destroy..."
           
-          # Try to force unlock if locked
-          echo "Checking for state lock..."
           if ! terraform destroy -auto-approve 2>&1 | tee destroy_output.log; then
-            if grep -q "state lock" destroy_output.log; then
-              echo "State is locked, attempting to force unlock..."
-              LOCK_ID=$(grep "ID:" destroy_output.log | awk '{print $2}' | head -1)
-              if [ -n "$LOCK_ID" ]; then
-                echo "Forcing unlock with ID: $LOCK_ID"
-                terraform force-unlock -force "$LOCK_ID" || echo "Force unlock failed"
-                echo "Retrying destroy after unlock..."
-                terraform destroy -auto-approve || echo "Destroy failed after unlock"
-              else
-                echo "Could not extract lock ID, trying with -lock=false"
-                terraform destroy -auto-approve -lock=false || echo "Destroy with -lock=false failed"
-              fi
+            if grep -q "state lock\|ConditionalCheckFailedException" destroy_output.log; then
+              echo "❌ State lock error - this is an authentic error that must be resolved"
+              cat destroy_output.log
+              exit 1
+            elif grep -q "permission\|forbidden\|unauthorized" destroy_output.log; then
+              echo "❌ Permission error - this is an authentic error"
+              cat destroy_output.log
+              exit 1
+            elif grep -q "not found\|does not exist\|already deleted" destroy_output.log; then
+              echo "✅ Resources already deleted, continuing"
             else
-              echo "Non-lock related error occurred"
+              echo "❌ Terraform destroy failed with authentic error"
+              cat destroy_output.log
+              exit 1
             fi
           else
             echo "✅ Terraform destroy completed successfully"

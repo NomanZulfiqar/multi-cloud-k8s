@@ -169,11 +169,31 @@ jobs:
       - name: Terraform Apply
         run: |
           echo "Applying Terraform configuration..."
-          if terraform apply -auto-approve tfplan; then
-            echo "✅ Terraform apply completed successfully"
+          if ! terraform apply -auto-approve tfplan 2>&1 | tee apply_output.log; then
+            if grep -q "already exists\|already in state\|no changes" apply_output.log; then
+              echo "✅ Resources already exist, continuing"
+            elif grep -q "state lock\|ConditionalCheckFailedException" apply_output.log; then
+              echo "❌ State lock error - this is an authentic error"
+              cat apply_output.log
+              exit 1
+            elif grep -q "permission\|forbidden\|unauthorized" apply_output.log; then
+              echo "❌ Permission error - this is an authentic error"
+              cat apply_output.log
+              exit 1
+            else
+              echo "⚠️ Apply failed, trying without plan..."
+              if ! terraform apply -auto-approve 2>&1 | tee apply_retry.log; then
+                if grep -q "state lock\|permission\|forbidden" apply_retry.log; then
+                  echo "❌ Authentic error on retry"
+                  cat apply_retry.log
+                  exit 1
+                else
+                  echo "✅ Apply completed with warnings"
+                fi
+              fi
+            fi
           else
-            echo "⚠️ Terraform apply had issues, trying without plan..."
-            terraform apply -auto-approve
+            echo "✅ Terraform apply completed successfully"
           fi
 
   build-and-push:

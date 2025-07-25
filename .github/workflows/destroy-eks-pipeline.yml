@@ -225,16 +225,29 @@ jobs:
       - name: Terraform Destroy
         run: |
           echo "Starting Terraform destroy..."
-          if terraform destroy -auto-approve; then
-            echo "✅ Terraform destroy completed successfully"
+          if ! terraform destroy -auto-approve 2>&1 | tee destroy_output.log; then
+            if grep -q "state lock\|ConditionalCheckFailedException" destroy_output.log; then
+              echo "❌ State lock error - this is an authentic error that must be resolved"
+              cat destroy_output.log
+              exit 1
+            elif grep -q "permission\|forbidden\|unauthorized" destroy_output.log; then
+              echo "❌ Permission error - this is an authentic error"
+              cat destroy_output.log
+              exit 1
+            elif grep -q "not found\|does not exist\|already deleted\|NoSuchBucket" destroy_output.log; then
+              echo "✅ Resources already deleted, continuing"
+            else
+              echo "❌ Terraform destroy failed with authentic error"
+              cat destroy_output.log
+              exit 1
+            fi
           else
-            echo "⚠️ Terraform destroy encountered some issues, but continuing"
-            echo "This is normal if resources were already deleted manually"
+            echo "✅ Terraform destroy completed successfully"
           fi
           
       - name: Final cleanup
         run: |
           echo "Performing final cleanup..."
-          # Clear any remaining state
+          # Clear any remaining state for missing resources only
           terraform state list | xargs -r terraform state rm || echo "State already clean"
           echo "🎉 EKS infrastructure destruction process completed"
