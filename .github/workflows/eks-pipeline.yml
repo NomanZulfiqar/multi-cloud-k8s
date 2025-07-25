@@ -152,6 +152,10 @@ jobs:
               echo "❌ Kubernetes authentication error - this is an authentic error"
               cat apply_output.log
               exit 1
+            elif grep -q "CacheSubnetGroupNotFoundFault\|DBSubnetGroupNotFoundFault\|subnet group.*does not exist\|not found" apply_output.log; then
+              echo "❌ Database subnet group error - this is an authentic error"
+              cat apply_output.log
+              exit 1
             else
               echo "⚠️ Apply failed, trying without plan..."
               if ! terraform apply -auto-approve 2>&1 | tee apply_retry.log; then

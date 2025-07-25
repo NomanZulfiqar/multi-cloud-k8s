@@ -2,6 +2,8 @@ resource "aws_elasticache_subnet_group" "cache_subnet_group" {
   name       = "cache-subnet-group"
   subnet_ids = module.vpc.public_subnets
   
+  depends_on = [module.vpc]
+  
   lifecycle {
     ignore_changes = [subnet_ids]
   }
