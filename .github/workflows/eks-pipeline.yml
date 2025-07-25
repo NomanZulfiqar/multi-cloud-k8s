@@ -370,28 +370,92 @@ jobs:
         with:
           version: 'v3.8.0'
 
-      - name: Create AWS Secrets Manager Secret
+      - name: Install External Secrets Operator
         run: |
-          # Create the actual secret in AWS Secrets Manager
-          echo "Creating secret in AWS Secrets Manager..."
-          aws secretsmanager create-secret \
-            --name myapp/db-credentials \
-            --secret-string '{"username":"app_user","password":"app_password"}' \
-            --region us-east-1 || echo "Secret may already exist, continuing"
+          echo "Installing External Secrets Operator..."
+          helm repo add external-secrets https://charts.external-secrets.io
+          helm repo update
+          
+          # Install External Secrets Operator
+          helm upgrade --install external-secrets external-secrets/external-secrets \
+            --namespace external-secrets \
+            --create-namespace \
+            --wait
+          
+          # Wait for operator to be ready
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=external-secrets -n external-secrets --timeout=300s
 
-      - name: Create Database Secret
+      - name: Configure External Secrets for AWS Secrets Manager
         run: |
-          # Create database credentials secret directly
-          echo "Creating database credentials secret..."
-          kubectl create secret generic db-credentials \
-            --from-literal=username=app_user \
-            --from-literal=password=app_password \
-            --namespace=default \
-            --dry-run=client -o yaml | kubectl apply -f -
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/external-secrets-role"
+          
+          echo "Creating External Secrets configuration..."
+          
+          # Create service account with IAM role annotation
+          kubectl apply -f - <<EOF
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: external-secrets-sa
+            namespace: external-secrets
+            annotations:
+              eks.amazonaws.com/role-arn: $ROLE_ARN
+          EOF
+          
+          # Create SecretStore for AWS Secrets Manager
+          kubectl apply -f - <<EOF
+          apiVersion: external-secrets.io/v1beta1
+          kind: SecretStore
+          metadata:
+            name: aws-secrets-manager
+            namespace: default
+          spec:
+            provider:
+              aws:
+                service: SecretsManager
+                region: us-east-1
+                auth:
+                  jwt:
+                    serviceAccountRef:
+                      name: external-secrets-sa
+                      namespace: external-secrets
+          EOF
+          
+          # Create ExternalSecret to sync from AWS Secrets Manager
+          kubectl apply -f - <<EOF
+          apiVersion: external-secrets.io/v1beta1
+          kind: ExternalSecret
+          metadata:
+            name: db-credentials-sync
+            namespace: default
+          spec:
+            refreshInterval: 1m
+            secretStoreRef:
+              name: aws-secrets-manager
+              kind: SecretStore
+            target:
+              name: db-credentials
+              creationPolicy: Owner
+            data:
+            - secretKey: username
+              remoteRef:
+                key: myapp/db-credentials
+                property: username
+            - secretKey: password
+              remoteRef:
+                key: myapp/db-credentials
+                property: password
+          EOF
+          
+          # Wait for secret to be synced
+          echo "Waiting for secret sync from AWS Secrets Manager..."
+          kubectl wait --for=condition=Ready externalsecret/db-credentials-sync --timeout=300s
           
           # Verify the secret was created
-          echo "Verifying secret was created..."
+          echo "Verifying secret was synced from AWS Secrets Manager..."
           kubectl get secret db-credentials
+          kubectl describe externalsecret db-credentials-sync
 
       - name: Deploy Database
         run: |
