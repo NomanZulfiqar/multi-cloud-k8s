@@ -309,52 +309,14 @@ jobs:
           # Final verification
           kubectl cluster-info
           
-          # Create aws-auth ConfigMap using AWS API directly (bypasses kubectl auth)
-          echo "Creating aws-auth ConfigMap via AWS API..."
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          
-          # Get the actual node group name and role ARN
-          NODE_GROUP_NAME=$(aws eks list-nodegroups --cluster-name my-eks-cluster --region us-east-1 --query 'nodegroups[0]' --output text)
-          NODE_ROLE_ARN=$(aws eks describe-nodegroup --cluster-name my-eks-cluster --nodegroup-name $NODE_GROUP_NAME --region us-east-1 --query 'nodegroup.nodeRole' --output text)
-          
-          echo "Found node group: $NODE_GROUP_NAME"
-          echo "Found node role ARN: $NODE_ROLE_ARN"
-          
-          # Create aws-auth ConfigMap using AWS EKS API directly
-          cat > configmap.json <<EOF
-          {
-            "apiVersion": "v1",
-            "kind": "ConfigMap",
-            "metadata": {
-              "name": "aws-auth",
-              "namespace": "kube-system"
-            },
-            "data": {
-              "mapRoles": "- rolearn: $NODE_ROLE_ARN\\n  username: system:node:{{EC2PrivateDNSName}}\\n  groups:\\n    - system:bootstrappers\\n    - system:nodes\\n",
-              "mapUsers": "- userarn: arn:aws:iam::$ACCOUNT_ID:root\\n  username: root\\n  groups:\\n    - system:masters\\n"
-            }
-          }
-          EOF
-          
-          # Apply using AWS EKS API with admin credentials
-          CLUSTER_ENDPOINT=$(aws eks describe-cluster --name my-eks-cluster --region us-east-1 --query 'cluster.endpoint' --output text)
-          CLUSTER_CA=$(aws eks describe-cluster --name my-eks-cluster --region us-east-1 --query 'cluster.certificateAuthority.data' --output text)
-          TOKEN=$(aws eks get-token --cluster-name my-eks-cluster --region us-east-1 --query 'status.token' --output text)
-          
-          # Use curl to create ConfigMap directly via Kubernetes API
-          curl -X POST "$CLUSTER_ENDPOINT/api/v1/namespaces/kube-system/configmaps" \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "Content-Type: application/json" \
-            -d @configmap.json \
-            --cacert <(echo "$CLUSTER_CA" | base64 -d) || echo "ConfigMap may already exist"
-          
-          # Wait a moment for the ConfigMap to take effect
-          sleep 30
-          
-          # Test cluster access
-          echo "Testing cluster access..."
+          # Verify cluster access (aws-auth should be created by Terraform)
+          echo "Verifying cluster access..."
           kubectl get nodes
           kubectl get pods -A
+          
+          # Verify aws-auth ConfigMap exists
+          echo "Checking aws-auth ConfigMap..."
+          kubectl get configmap aws-auth -n kube-system
 
       - name: Create ECR Pull Secret
         run: |
@@ -392,13 +354,13 @@ jobs:
           
           echo "Creating External Secrets configuration..."
           
-          # Create service account with IAM role annotation
+          # Create service account with IAM role annotation in default namespace
           kubectl apply -f - <<EOF
           apiVersion: v1
           kind: ServiceAccount
           metadata:
             name: external-secrets-sa
-            namespace: external-secrets
+            namespace: default
             annotations:
               eks.amazonaws.com/role-arn: $ROLE_ARN
           EOF
@@ -419,7 +381,6 @@ jobs:
                   jwt:
                     serviceAccountRef:
                       name: external-secrets-sa
-                      namespace: external-secrets
           EOF
           
           # Create ExternalSecret to sync from AWS Secrets Manager

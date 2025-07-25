@@ -55,6 +55,8 @@ resource "aws_db_instance" "postgres" {
   vpc_security_group_ids = [aws_security_group.postgres.id]
   apply_immediately    = true
 
+  depends_on = [aws_db_subnet_group.postgres, module.vpc]
+
   lifecycle {
     ignore_changes = [
       password,
