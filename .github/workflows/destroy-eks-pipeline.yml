@@ -249,5 +249,11 @@ jobs:
         run: |
           echo "Performing final cleanup..."
           # Clear any remaining state for missing resources only
-          terraform state list | xargs -r terraform state rm || echo "State already clean"
+          STATE_RESOURCES=$(terraform state list || echo "")
+          if [ -n "$STATE_RESOURCES" ]; then
+            echo "Removing remaining state resources..."
+            echo "$STATE_RESOURCES" | xargs -r -I {} terraform state rm "{}" || echo "State cleanup completed"
+          else
+            echo "State already clean"
+          fi
           echo "🎉 EKS infrastructure destruction process completed"
