@@ -23,8 +23,7 @@ provider "aws" {
   region = "us-east-1"  # Changed to us-east-1 region
 }
 
-# Get current AWS account info
-data "aws_caller_identity" "current" {}
+# Get EKS cluster info for Kubernetes provider
 data "aws_eks_cluster" "cluster" {
   name = module.eks.cluster_name
 }
