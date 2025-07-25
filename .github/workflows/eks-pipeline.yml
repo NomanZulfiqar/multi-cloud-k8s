@@ -285,37 +285,29 @@ jobs:
           echo "ECR_REPOSITORY_URL=$ECR_URL" >> $GITHUB_OUTPUT
           echo "EXTERNAL_SECRETS_ROLE_ARN=$ROLE_ARN" >> $GITHUB_OUTPUT
 
-      - name: Update kubeconfig and verify access
+      - name: Install eksctl and create aws-auth ConfigMap
         run: |
+          # Install eksctl
+          curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
+          sudo mv /tmp/eksctl /usr/local/bin
+          
+          # Get account ID
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          
+          # Create aws-auth ConfigMap using eksctl
+          echo "Creating aws-auth ConfigMap with eksctl..."
+          eksctl create iamidentitymapping --cluster my-eks-cluster --region us-east-1 --arn arn:aws:iam::$ACCOUNT_ID:root --group system:masters --username root
+          
+          # Update kubeconfig
           aws eks update-kubeconfig --name my-eks-cluster --region ${{ env.AWS_REGION }}
           
-          # Wait for cluster to be accessible
-          echo "Waiting for cluster to be accessible..."
-          for i in {1..10}; do
-            if kubectl get nodes &>/dev/null; then
-              echo "✅ Cluster is accessible"
-              kubectl get nodes
-              break
-            else
-              echo "Waiting for cluster access... ($i/10)"
-              sleep 30
-            fi
-          done
-          
-          # Verify aws-auth configmap
-          echo "Checking aws-auth configmap..."
-          kubectl get configmap aws-auth -n kube-system || echo "aws-auth configmap not found"
-          
-          # Final verification
-          kubectl cluster-info
-          
-          # Verify cluster access (aws-auth should be created by Terraform)
-          echo "Verifying cluster access..."
+          # Test cluster access
+          echo "Testing cluster access..."
           kubectl get nodes
           kubectl get pods -A
           
-          # Verify aws-auth ConfigMap exists
-          echo "Checking aws-auth ConfigMap..."
+          # Verify aws-auth ConfigMap
+          echo "Verifying aws-auth ConfigMap..."
           kubectl get configmap aws-auth -n kube-system
 
       - name: Create ECR Pull Secret
