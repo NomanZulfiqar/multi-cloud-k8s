@@ -313,14 +313,17 @@ jobs:
           echo "Creating aws-auth ConfigMap..."
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           
-          # Get the actual node group role name
-          NODE_GROUP_ROLE=$(aws iam list-roles --query 'Roles[?contains(RoleName, `my-eks-cluster-node-group`)].RoleName' --output text)
-          echo "Found node group role: $NODE_GROUP_ROLE"
+          # Get the actual node group name and role ARN
+          NODE_GROUP_NAME=$(aws eks list-nodegroups --cluster-name my-eks-cluster --region us-east-1 --query 'nodegroups[0]' --output text)
+          NODE_ROLE_ARN=$(aws eks describe-nodegroup --cluster-name my-eks-cluster --nodegroup-name $NODE_GROUP_NAME --region us-east-1 --query 'nodegroup.nodeRole' --output text)
+          
+          echo "Found node group: $NODE_GROUP_NAME"
+          echo "Found node role ARN: $NODE_ROLE_ARN"
           
           # Delete existing aws-auth if it exists
           kubectl delete configmap aws-auth -n kube-system --ignore-not-found=true
           
-          # Create new aws-auth ConfigMap
+          # Create new aws-auth ConfigMap with correct role ARN
           kubectl apply -f - <<EOF
           apiVersion: v1
           kind: ConfigMap
@@ -329,7 +332,7 @@ jobs:
             namespace: kube-system
           data:
             mapRoles: |
-              - rolearn: arn:aws:iam::$ACCOUNT_ID:role/$NODE_GROUP_ROLE
+              - rolearn: $NODE_ROLE_ARN
                 username: system:node:{{EC2PrivateDNSName}}
                 groups:
                   - system:bootstrappers
@@ -344,6 +347,7 @@ jobs:
           # Verify the ConfigMap was created
           echo "Verifying aws-auth ConfigMap..."
           kubectl get configmap aws-auth -n kube-system
+          
           
           # Test cluster access
           echo "Testing cluster access..."
