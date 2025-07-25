@@ -108,9 +108,9 @@ module "eks" {
     Terraform   = "true"
   }
   
-  # Configure aws-auth for cluster access
-  manage_aws_auth_configmap = true
-  create_aws_auth_configmap = true
+  # Disable aws-auth configmap management to prevent connection issues
+  manage_aws_auth_configmap = false
+  create_aws_auth_configmap = false
   
   aws_auth_users = [
     {

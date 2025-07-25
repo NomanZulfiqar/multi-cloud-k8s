@@ -103,24 +103,23 @@ jobs:
           name: tfplan
           path: ./eks/terraform
 
+      - name: Clean up old subnet groups from different VPCs
+        run: |
+          echo "Cleaning up old subnet groups that may be in different VPCs..."
+          
+          # Delete old ElastiCache subnet group if it exists
+          aws elasticache delete-cache-subnet-group --cache-subnet-group-name cache-subnet-group || echo "ElastiCache subnet group may not exist"
+          
+          # Delete old RDS subnet group if it exists
+          aws rds delete-db-subnet-group --db-subnet-group-name postgres-subnet-group || echo "RDS subnet group may not exist"
+          
+          # Wait a bit for deletion to complete
+          sleep 30
+          
+          echo "Subnet group cleanup completed"
+
       - name: Manual Import of Critical Resources
         run: |
-          # Check if ElastiCache subnet group is in state before importing
-          if ! terraform state list | grep -q "aws_elasticache_subnet_group.cache_subnet_group"; then
-            echo "Importing ElastiCache subnet group..."
-            terraform import aws_elasticache_subnet_group.cache_subnet_group cache-subnet-group || echo "Import failed, continuing"
-          else
-            echo "ElastiCache subnet group already in state, skipping import"
-          fi
-          
-          # Check if RDS DB subnet group is in state before importing
-          if ! terraform state list | grep -q "aws_db_subnet_group.postgres"; then
-            echo "Importing RDS DB subnet group..."
-            terraform import aws_db_subnet_group.postgres postgres-subnet-group || echo "Import failed, continuing"
-          else
-            echo "RDS DB subnet group already in state, skipping import"
-          fi
-          
           # Check if EKS cluster is in state before importing
           if ! terraform state list | grep -q "module.eks.aws_eks_cluster.this"; then
             echo "Importing EKS cluster..."
@@ -293,6 +292,29 @@ jobs:
           
           # Final verification
           kubectl cluster-info
+          
+          # Create aws-auth ConfigMap manually
+          echo "Creating aws-auth ConfigMap..."
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          kubectl apply -f - <<EOF
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: aws-auth
+            namespace: kube-system
+          data:
+            mapRoles: |
+              - rolearn: arn:aws:iam::$ACCOUNT_ID:role/my-eks-cluster-node-group-*
+                username: system:node:{{EC2PrivateDNSName}}
+                groups:
+                  - system:bootstrappers
+                  - system:nodes
+            mapUsers: |
+              - userarn: arn:aws:iam::$ACCOUNT_ID:root
+                username: root
+                groups:
+                  - system:masters
+          EOF
 
       - name: Create ECR Pull Secret
         run: |
