@@ -147,6 +147,12 @@ jobs:
               echo "❌ Kubernetes connection error - this is an authentic error"
               cat apply_output.log
               exit 1
+            elif grep -q "already exists\|AlreadyExists" apply_output.log && grep -q "configmaps\|secrets\|serviceaccounts" apply_output.log; then
+              echo "✅ Kubernetes resources already exist, continuing"
+            elif grep -q "server has asked for the client to provide credentials\|Unauthorized\|authentication required" apply_output.log; then
+              echo "❌ Kubernetes authentication error - this is an authentic error"
+              cat apply_output.log
+              exit 1
             else
               echo "⚠️ Apply failed, trying without plan..."
               if ! terraform apply -auto-approve 2>&1 | tee apply_retry.log; then
@@ -264,10 +270,29 @@ jobs:
           echo "ECR_REPOSITORY_URL=$ECR_URL" >> $GITHUB_OUTPUT
           echo "EXTERNAL_SECRETS_ROLE_ARN=$ROLE_ARN" >> $GITHUB_OUTPUT
 
-      - name: Update kubeconfig
-        run: aws eks update-kubeconfig --name my-eks-cluster --region ${{ env.AWS_REGION }}
-      
-      
+      - name: Update kubeconfig and verify access
+        run: |
+          aws eks update-kubeconfig --name my-eks-cluster --region ${{ env.AWS_REGION }}
+          
+          # Wait for cluster to be accessible
+          echo "Waiting for cluster to be accessible..."
+          for i in {1..10}; do
+            if kubectl get nodes &>/dev/null; then
+              echo "✅ Cluster is accessible"
+              kubectl get nodes
+              break
+            else
+              echo "Waiting for cluster access... ($i/10)"
+              sleep 30
+            fi
+          done
+          
+          # Verify aws-auth configmap
+          echo "Checking aws-auth configmap..."
+          kubectl get configmap aws-auth -n kube-system || echo "aws-auth configmap not found"
+          
+          # Final verification
+          kubectl cluster-info
 
       - name: Create ECR Pull Secret
         run: |

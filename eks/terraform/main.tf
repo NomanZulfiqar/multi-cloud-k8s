@@ -125,15 +125,20 @@ module "eks" {
     Terraform   = "true"
   }
   
-  # Configure aws-auth for fresh deployment
+  # Configure aws-auth for cluster access
   manage_aws_auth_configmap = true
   create_aws_auth_configmap = true
+  
   aws_auth_users = [
     {
       userarn  = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
       username = "root"
       groups   = ["system:masters"]
     }
+  ]
+  
+  aws_auth_accounts = [
+    data.aws_caller_identity.current.account_id
   ]
 }
 
