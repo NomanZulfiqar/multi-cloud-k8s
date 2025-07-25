@@ -31,9 +31,9 @@ module "vpc" {
   # Prevent recreation of VPC
   manage_default_vpc = false
 
-  azs             = ["us-east-1a", "us-east-1b", "us-east-1c"]
-  private_subnets = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
-  public_subnets  = ["10.0.101.0/24", "10.0.102.0/24", "10.0.103.0/24"]
+  azs             = ["us-east-1a", "us-east-1b"]
+  private_subnets = ["10.0.1.0/24", "10.0.2.0/24"]
+  public_subnets  = ["10.0.101.0/24", "10.0.102.0/24"]
 
   # Enable auto-assign public IP for public subnets
   map_public_ip_on_launch = true
@@ -111,17 +111,9 @@ module "eks" {
     Terraform   = "true"
   }
   
-  # Enable aws-auth configmap management
-  manage_aws_auth_configmap = true
-  create_aws_auth_configmap = true
-  
-  aws_auth_users = [
-    {
-      userarn  = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root"
-      username = "root"
-      groups   = ["system:masters"]
-    }
-  ]
+  # Disable aws-auth configmap management to prevent localhost errors
+  manage_aws_auth_configmap = false
+  create_aws_auth_configmap = false
 }
 
 #  Outputs for kubectl configuration

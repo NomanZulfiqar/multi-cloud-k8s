@@ -164,8 +164,8 @@ jobs:
               echo "❌ Kubernetes authentication error - this is an authentic error"
               cat apply_output.log
               exit 1
-            elif grep -q "CacheSubnetGroupNotFoundFault\|DBSubnetGroupNotFoundFault\|subnet group.*does not exist\|not found" apply_output.log; then
-              echo "❌ Database subnet group error - this is an authentic error"
+            elif grep -q "CacheSubnetGroupNotFoundFault\|DBSubnetGroupNotFoundFault\|subnet group.*does not exist\|not found\|InvalidParameterException.*subnets belong to the AZs" apply_output.log; then
+              echo "❌ Database/VPC subnet error - FAILING PIPELINE"
               cat apply_output.log
               exit 1
             else
