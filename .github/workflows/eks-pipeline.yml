@@ -103,29 +103,36 @@ jobs:
           name: tfplan
           path: ./eks/terraform
 
-      - name: Clean up old subnet groups from different VPCs
+      - name: Import existing subnet groups and resources
         run: |
-          echo "Cleaning up old subnet groups that may be in different VPCs..."
+          # Import ElastiCache subnet group if it exists
+          if aws elasticache describe-cache-subnet-groups --cache-subnet-group-name cache-subnet-group &>/dev/null; then
+            echo "ElastiCache subnet group exists, importing..."
+            terraform import aws_elasticache_subnet_group.cache_subnet_group cache-subnet-group || echo "Already in state"
+          fi
           
-          # Delete old ElastiCache subnet group if it exists
-          aws elasticache delete-cache-subnet-group --cache-subnet-group-name cache-subnet-group || echo "ElastiCache subnet group may not exist"
+          # Import RDS subnet group if it exists
+          if aws rds describe-db-subnet-groups --db-subnet-group-name postgres-subnet-group &>/dev/null; then
+            echo "RDS subnet group exists, importing..."
+            terraform import aws_db_subnet_group.postgres postgres-subnet-group || echo "Already in state"
+          fi
           
-          # Delete old RDS subnet group if it exists
-          aws rds delete-db-subnet-group --db-subnet-group-name postgres-subnet-group || echo "RDS subnet group may not exist"
+          # Import ElastiCache cluster if it exists
+          if aws elasticache describe-cache-clusters --cache-cluster-id eks-redis &>/dev/null; then
+            echo "ElastiCache cluster exists, importing..."
+            terraform import aws_elasticache_cluster.redis eks-redis || echo "Already in state"
+          fi
           
-          # Wait a bit for deletion to complete
-          sleep 30
+          # Import RDS instance if it exists
+          if aws rds describe-db-instances --db-instance-identifier eks-postgres &>/dev/null; then
+            echo "RDS instance exists, importing..."
+            terraform import aws_db_instance.postgres eks-postgres || echo "Already in state"
+          fi
           
-          echo "Subnet group cleanup completed"
-
-      - name: Manual Import of Critical Resources
-        run: |
-          # Check if EKS cluster is in state before importing
-          if ! terraform state list | grep -q "module.eks.aws_eks_cluster.this"; then
-            echo "Importing EKS cluster..."
-            terraform import module.eks.aws_eks_cluster.this[0] my-eks-cluster || echo "Import failed, continuing"
-          else
-            echo "EKS cluster already in state, skipping import"
+          # Import EKS cluster if it exists
+          if aws eks describe-cluster --name my-eks-cluster &>/dev/null; then
+            echo "EKS cluster exists, importing..."
+            terraform import module.eks.aws_eks_cluster.this[0] my-eks-cluster || echo "Already in state"
           fi
       
       - name: Terraform Apply
