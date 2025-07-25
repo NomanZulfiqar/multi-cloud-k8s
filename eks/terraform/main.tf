@@ -56,7 +56,7 @@ module "vpc" {
 
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "18.31.2"
+  version = "19.21.0"
 
   cluster_name    = "my-eks-cluster"
   cluster_version = "1.32"
@@ -108,9 +108,9 @@ module "eks" {
     Terraform   = "true"
   }
   
-  # Disable aws-auth configmap management to prevent localhost connection error
-  manage_aws_auth_configmap = false
-  create_aws_auth_configmap = false
+  # Enable aws-auth configmap management
+  manage_aws_auth_configmap = true
+  create_aws_auth_configmap = true
   
   aws_auth_users = [
     {
@@ -118,10 +118,6 @@ module "eks" {
       username = "root"
       groups   = ["system:masters"]
     }
-  ]
-  
-  aws_auth_accounts = [
-    data.aws_caller_identity.current.account_id
   ]
 }
 
