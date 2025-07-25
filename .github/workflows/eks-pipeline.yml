@@ -103,20 +103,24 @@ jobs:
           name: tfplan
           path: ./eks/terraform
 
-      - name: Import existing subnet groups and resources
+      - name: Force delete old subnet groups from different VPCs
         run: |
-          # Import ElastiCache subnet group if it exists
-          if aws elasticache describe-cache-subnet-groups --cache-subnet-group-name cache-subnet-group &>/dev/null; then
-            echo "ElastiCache subnet group exists, importing..."
-            terraform import aws_elasticache_subnet_group.cache_subnet_group cache-subnet-group || echo "Already in state"
-          fi
+          echo "Force deleting old subnet groups that may be in different VPCs..."
           
-          # Import RDS subnet group if it exists
-          if aws rds describe-db-subnet-groups --db-subnet-group-name postgres-subnet-group &>/dev/null; then
-            echo "RDS subnet group exists, importing..."
-            terraform import aws_db_subnet_group.postgres postgres-subnet-group || echo "Already in state"
-          fi
+          # Force delete ElastiCache subnet group
+          aws elasticache delete-cache-subnet-group --cache-subnet-group-name cache-subnet-group || echo "ElastiCache subnet group may not exist"
           
+          # Force delete RDS subnet group  
+          aws rds delete-db-subnet-group --db-subnet-group-name postgres-subnet-group || echo "RDS subnet group may not exist"
+          
+          # Wait for deletion to complete
+          echo "Waiting for subnet group deletion..."
+          sleep 60
+          
+          echo "Old subnet groups deleted"
+
+      - name: Import existing resources (excluding subnet groups)
+        run: |
           # Import ElastiCache cluster if it exists
           if aws elasticache describe-cache-clusters --cache-cluster-id eks-redis &>/dev/null; then
             echo "ElastiCache cluster exists, importing..."
