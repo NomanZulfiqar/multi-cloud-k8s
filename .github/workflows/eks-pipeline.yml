@@ -285,54 +285,31 @@ jobs:
           echo "ECR_REPOSITORY_URL=$ECR_URL" >> $GITHUB_OUTPUT
           echo "EXTERNAL_SECRETS_ROLE_ARN=$ROLE_ARN" >> $GITHUB_OUTPUT
 
-      - name: Wait for cluster and create aws-auth ConfigMap
+      - name: Create aws-auth ConfigMap and verify access
         run: |
-          # Wait for cluster to be fully ready
-          echo "Waiting for EKS cluster to be fully ready..."
+          # Wait for cluster to be ready
+          echo "Waiting for EKS cluster to be ready..."
           aws eks wait cluster-active --name my-eks-cluster --region us-east-1
+          sleep 30
           
-          # Wait additional time for cluster endpoint to be accessible
-          sleep 60
-          
-          # Install eksctl
-          curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
-          sudo mv /tmp/eksctl /usr/local/bin
-          
-          # Get account ID and node group role
+          # Get cluster info
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           NODE_GROUP_NAME=$(aws eks list-nodegroups --cluster-name my-eks-cluster --region us-east-1 --query 'nodegroups[0]' --output text)
           NODE_ROLE_ARN=$(aws eks describe-nodegroup --cluster-name my-eks-cluster --nodegroup-name $NODE_GROUP_NAME --region us-east-1 --query 'nodegroup.nodeRole' --output text)
           
-          # Create aws-auth ConfigMap manually using kubectl with admin token
-          echo "Creating aws-auth ConfigMap manually..."
-          TOKEN=$(aws eks get-token --cluster-name my-eks-cluster --region us-east-1 --query 'status.token' --output text)
-          ENDPOINT=$(aws eks describe-cluster --name my-eks-cluster --region us-east-1 --query 'cluster.endpoint' --output text)
+          echo "Account ID: $ACCOUNT_ID"
+          echo "Node Group: $NODE_GROUP_NAME"
+          echo "Node Role ARN: $NODE_ROLE_ARN"
           
-          # Create aws-auth ConfigMap
-          cat > aws-auth.yaml <<EOF
-          apiVersion: v1
-          kind: ConfigMap
-          metadata:
-            name: aws-auth
-            namespace: kube-system
-          data:
-            mapRoles: |
-              - rolearn: $NODE_ROLE_ARN
-                username: system:node:{{EC2PrivateDNSName}}
-                groups:
-                  - system:bootstrappers
-                  - system:nodes
-            mapUsers: |
-              - userarn: arn:aws:iam::$ACCOUNT_ID:root
-                username: root
-                groups:
-                  - system:masters
-          EOF
+          # Install eksctl for reliable aws-auth creation
+          curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
+          sudo mv /tmp/eksctl /usr/local/bin
           
-          # Apply using kubectl with token auth
-          kubectl apply -f aws-auth.yaml --server=$ENDPOINT --token=$TOKEN --insecure-skip-tls-verify
+          # Create aws-auth using eksctl (most reliable method)
+          echo "Creating aws-auth ConfigMap using eksctl..."
+          eksctl create iamidentitymapping --cluster my-eks-cluster --region us-east-1 --arn arn:aws:iam::$ACCOUNT_ID:root --group system:masters --username root --timeout 10m
           
-          # Update kubeconfig and test
+          # Update kubeconfig and verify
           aws eks update-kubeconfig --name my-eks-cluster --region us-east-1
           kubectl get nodes
           kubectl get pods -A

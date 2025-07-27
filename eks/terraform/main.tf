@@ -2,7 +2,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = "~> 4.67.0"
     }
   }
   
@@ -23,7 +23,7 @@ provider "aws" {
 
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
-  version = "5.0.0"
+  version = "3.19.0"
 
   name = "eks-vpc"
   cidr = "10.0.0.0/16"
@@ -59,50 +59,29 @@ module "vpc" {
 
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "19.21.0"
+  version = "18.31.2"
 
   cluster_name    = "my-eks-cluster"
-  cluster_version = "1.32"
+  cluster_version = "1.28"
 
   vpc_id     = module.vpc.vpc_id
   subnet_ids = module.vpc.public_subnets
   
-  # Create CloudWatch Log Group to avoid dependency cycle
-  create_cloudwatch_log_group = true
-  cloudwatch_log_group_retention_in_days = 7
-  cloudwatch_log_group_kms_key_id = ""
-  cluster_enabled_log_types = ["api", "audit"]
-  
   # Enable IRSA (IAM Roles for Service Accounts)
   enable_irsa = true
   
-  # Prevent changes to existing resources
-  cluster_timeouts = {
-    create = "30m"
-    update = "60m"
-    delete = "30m"
-  }
-  
-  # Ignore changes to tags and other attributes
-  cluster_tags = {
-    Name = "my-eks-cluster"
-  }
-  
-  # Use IAM role settings compatible with this module version
-  iam_role_use_name_prefix = false
-
-  # EKS Managed Node Group(s) - using t3.micro for lowest cost
+  # EKS Managed Node Group(s)
   eks_managed_node_groups = {
     app_nodes = {
       name         = "app-nodes"
       min_size     = 1
-      max_size     = 1  # Limiting to just 1 node
+      max_size     = 1
       desired_size = 1
 
-      instance_types = ["t3.small"]  # Using t3.small which has higher pod capacity
-      capacity_type  = "SPOT"  # Using Spot instances for lower cost
+      instance_types = ["t3.small"]
+      capacity_type  = "ON_DEMAND"
       disk_size      = 20
-      ami_type       = "AL2_x86_64"  # Explicitly using Amazon Linux 2 AMI
+      ami_type       = "AL2_x86_64"
     }
   }
 
@@ -110,10 +89,6 @@ module "eks" {
     Environment = "dev"
     Terraform   = "true"
   }
-  
-  # Disable aws-auth configmap management to prevent localhost errors
-  manage_aws_auth_configmap = false
-  create_aws_auth_configmap = false
 }
 
 #  Outputs for kubectl configuration
