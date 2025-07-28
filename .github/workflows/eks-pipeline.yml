@@ -118,21 +118,23 @@ jobs:
           
           echo "Expected VPC: $EXPECTED_VPC"
           
-          # Check and delete ElastiCache subnet group if in wrong VPC
+          # Check ElastiCache subnet group VPC but don't delete if in use
           if aws elasticache describe-cache-subnet-groups --cache-subnet-group-name cache-subnet-group &>/dev/null; then
             CACHE_VPC=$(aws elasticache describe-cache-subnet-groups --cache-subnet-group-name cache-subnet-group --query 'CacheSubnetGroups[0].VpcId' --output text)
             if [[ "$CACHE_VPC" != "$EXPECTED_VPC" ]]; then
-              echo "ElastiCache subnet group in wrong VPC ($CACHE_VPC), deleting..."
-              aws elasticache delete-cache-subnet-group --cache-subnet-group-name cache-subnet-group
+              echo "ElastiCache subnet group in wrong VPC ($CACHE_VPC) but may be in use, skipping deletion"
+            else
+              echo "ElastiCache subnet group in correct VPC"
             fi
           fi
           
-          # Check and delete RDS subnet group if in wrong VPC
+          # Check RDS subnet group VPC but don't delete if in use
           if aws rds describe-db-subnet-groups --db-subnet-group-name postgres-subnet-group &>/dev/null; then
             RDS_VPC=$(aws rds describe-db-subnet-groups --db-subnet-group-name postgres-subnet-group --query 'DBSubnetGroups[0].VpcId' --output text)
             if [[ "$RDS_VPC" != "$EXPECTED_VPC" ]]; then
-              echo "RDS subnet group in wrong VPC ($RDS_VPC), deleting..."
-              aws rds delete-db-subnet-group --db-subnet-group-name postgres-subnet-group
+              echo "RDS subnet group in wrong VPC ($RDS_VPC) but may be in use, skipping deletion"
+            else
+              echo "RDS subnet group in correct VPC"
             fi
           fi
           
