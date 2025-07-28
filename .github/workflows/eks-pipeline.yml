@@ -533,10 +533,22 @@ jobs:
           # Verify External Secrets service account exists
           kubectl get serviceaccount external-secrets -n external-secrets -o yaml
           
-          # Disable webhook temporarily to avoid timeout
-          echo "Disabling External Secrets webhook..."
-          kubectl delete validatingwebhookconfiguration external-secrets || echo "Webhook may not exist"
-          sleep 5
+          # Disable ALL External Secrets webhooks to avoid timeout
+          echo "Disabling ALL External Secrets webhooks..."
+          
+          # Try all possible webhook names
+          kubectl delete validatingwebhookconfiguration external-secrets || echo "external-secrets not found"
+          kubectl delete validatingwebhookconfiguration external-secrets-webhook || echo "external-secrets-webhook not found"
+          kubectl delete validatingwebhookconfiguration external-secrets-validating-webhook || echo "external-secrets-validating-webhook not found"
+          
+          # Delete by labels/selectors
+          kubectl get validatingwebhookconfigurations -o name | grep external | xargs -r kubectl delete || echo "No external webhooks found"
+          
+          # List remaining webhooks for debugging
+          echo "Remaining webhooks:"
+          kubectl get validatingwebhookconfigurations
+          
+          sleep 10
           
           # Create SecretStore with error handling (bypass webhook validation)
           echo "Creating SecretStore..."
