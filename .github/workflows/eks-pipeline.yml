@@ -103,18 +103,9 @@ jobs:
           name: tfplan
           path: ./eks/terraform
 
-      - name: Clean up old subnet groups only (preserve databases)
+      - name: Skip cleanup for fresh cluster
         run: |
-          echo "Cleaning up old subnet groups only..."
-          
-          # Only delete subnet groups, NOT the databases
-          aws elasticache delete-cache-subnet-group --cache-subnet-group-name cache-subnet-group || echo "ElastiCache subnet group may not exist"
-          aws rds delete-db-subnet-group --db-subnet-group-name postgres-subnet-group || echo "RDS subnet group may not exist"
-          
-          # Wait for subnet group deletion
-          sleep 30
-          
-          echo "Subnet group cleanup completed"
+          echo "Skipping cleanup - fresh cluster creation"
 
       - name: Import existing resources
         run: |
@@ -388,17 +379,23 @@ jobs:
           # Wait for operator to be ready
           kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=external-secrets -n external-secrets --timeout=600s
           
-          # Wait for CRDs to be fully available
+          # Wait for CRDs to be fully available with longer timeout
           echo "Waiting for CRDs to be available..."
-          for i in {1..30}; do
-            if kubectl get crd secretstores.external-secrets.io &>/dev/null; then
-              echo "✅ SecretStore CRD is available"
+          sleep 60
+          
+          for i in {1..60}; do
+            if kubectl get crd secretstores.external-secrets.io &>/dev/null && kubectl get crd externalsecrets.external-secrets.io &>/dev/null; then
+              echo "✅ All External Secrets CRDs are available"
               break
             else
-              echo "Waiting for CRDs... ($i/30)"
+              echo "Waiting for CRDs... ($i/60)"
               sleep 10
             fi
           done
+          
+          # Final verification
+          kubectl get crd | grep external-secrets
+          kubectl api-resources | grep external-secrets
           
           # Verify CRDs are installed
           kubectl get crd | grep external-secrets
