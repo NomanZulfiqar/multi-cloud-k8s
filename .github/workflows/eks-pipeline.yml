@@ -564,8 +564,13 @@ jobs:
           # Delete by labels/selectors
           kubectl get validatingwebhookconfigurations -o name | grep external | xargs -r kubectl delete || echo "No external webhooks found"
           
+          # Delete existing SecretStore and recreate with new service account
+          echo "Deleting existing SecretStore to recreate with new service account..."
+          kubectl delete secretstore aws-secrets-manager || echo "SecretStore may not exist"
+          sleep 5
+          
           # Create SecretStore IMMEDIATELY after webhook deletion (before recreation)
-          echo "Creating SecretStore immediately after webhook deletion..."
+          echo "Creating SecretStore with new service account..."
           if kubectl apply --validate=false -f - <<EOF
           apiVersion: external-secrets.io/v1
           kind: SecretStore
