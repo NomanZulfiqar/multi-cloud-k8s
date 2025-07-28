@@ -541,6 +541,8 @@ jobs:
           metadata:
             name: aws-secrets-manager
             namespace: default
+            annotations:
+              external-secrets.io/webhook-bypass: "true"
           spec:
             provider:
               aws:
@@ -572,6 +574,8 @@ jobs:
           metadata:
             name: db-credentials-sync
             namespace: default
+            annotations:
+              external-secrets.io/webhook-bypass: "true"
           spec:
             refreshInterval: 1m
             secretStoreRef:
