@@ -535,7 +535,12 @@ jobs:
             exit 1
           fi
           
-          # Annotate External Secrets Operator's built-in service account with IAM role
+          # Create service account in default namespace with IAM role annotation
+          echo "Creating service account in default namespace with IAM role..."
+          kubectl create serviceaccount external-secrets-sa --namespace=default --dry-run=client -o yaml | kubectl apply -f -
+          kubectl annotate serviceaccount external-secrets-sa -n default eks.amazonaws.com/role-arn=$ROLE_ARN --overwrite
+          
+          # Also annotate the external-secrets namespace service account as backup
           echo "Annotating External Secrets service account with IAM role..."
           kubectl annotate serviceaccount external-secrets -n external-secrets eks.amazonaws.com/role-arn=$ROLE_ARN --overwrite
           
@@ -577,8 +582,7 @@ jobs:
                 auth:
                   jwt:
                     serviceAccountRef:
-                      name: external-secrets
-                      namespace: external-secrets
+                      name: external-secrets-sa
           EOF
           then
             echo "✅ SecretStore created successfully"
