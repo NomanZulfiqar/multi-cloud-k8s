@@ -526,65 +526,12 @@ jobs:
             exit 1
           fi
           
-          # Create service account with detailed verification
-          echo "Creating service account..."
-          kubectl apply -f - <<EOF
-          apiVersion: v1
-          kind: ServiceAccount
-          metadata:
-            name: external-secrets-sa
-            namespace: default
-            annotations:
-              eks.amazonaws.com/role-arn: $ROLE_ARN
-          EOF
+          # Annotate External Secrets Operator's built-in service account with IAM role
+          echo "Annotating External Secrets service account with IAM role..."
+          kubectl annotate serviceaccount external-secrets -n external-secrets eks.amazonaws.com/role-arn=$ROLE_ARN --overwrite
           
-          # Create ClusterRole for external-secrets
-          echo "Creating ClusterRole for external-secrets..."
-          kubectl apply -f - <<EOF
-          apiVersion: rbac.authorization.k8s.io/v1
-          kind: ClusterRole
-          metadata:
-            name: external-secrets-controller
-          rules:
-          - apiGroups: ["external-secrets.io"]
-            resources: ["secretstores", "externalsecrets", "clustersecretstores"]
-            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-          - apiGroups: [""]
-            resources: ["secrets"]
-            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-          - apiGroups: [""]
-            resources: ["events"]
-            verbs: ["create", "patch"]
-          EOF
-          
-          # Create ClusterRoleBinding
-          echo "Creating ClusterRoleBinding..."
-          kubectl apply -f - <<EOF
-          apiVersion: rbac.authorization.k8s.io/v1
-          kind: ClusterRoleBinding
-          metadata:
-            name: external-secrets-controller
-          roleRef:
-            apiGroup: rbac.authorization.k8s.io
-            kind: ClusterRole
-            name: external-secrets-controller
-          subjects:
-          - kind: ServiceAccount
-            name: external-secrets-sa
-            namespace: default
-          EOF
-          
-          # Verify service account
-          kubectl get serviceaccount external-secrets-sa -o yaml
-          
-          # Test API access before creating resources
-          echo "Testing API access for SecretStore..."
-          if kubectl auth can-i create secretstores; then
-            echo "✅ Can create SecretStores"
-          else
-            echo "❌ Cannot create SecretStores"
-            kubectl auth can-i --list | grep secretstore || echo "No secretstore permissions"
-          fi
+          # Verify External Secrets service account exists
+          kubectl get serviceaccount external-secrets -n external-secrets -o yaml
           
           # Create SecretStore with error handling
           echo "Creating SecretStore..."
@@ -602,7 +549,8 @@ jobs:
                 auth:
                   jwt:
                     serviceAccountRef:
-                      name: external-secrets-sa
+                      name: external-secrets
+                      namespace: external-secrets
           EOF
           then
             echo "✅ SecretStore created successfully"
