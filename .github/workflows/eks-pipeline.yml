@@ -545,14 +545,8 @@ jobs:
           # Delete by labels/selectors
           kubectl get validatingwebhookconfigurations -o name | grep external | xargs -r kubectl delete || echo "No external webhooks found"
           
-          # List remaining webhooks for debugging
-          echo "Remaining webhooks:"
-          kubectl get validatingwebhookconfigurations
-          
-          sleep 10
-          
-          # Create SecretStore with error handling (bypass webhook validation)
-          echo "Creating SecretStore..."
+          # Create SecretStore IMMEDIATELY after webhook deletion (before recreation)
+          echo "Creating SecretStore immediately after webhook deletion..."
           if kubectl apply --validate=false -f - <<EOF
           apiVersion: external-secrets.io/v1
           kind: SecretStore
