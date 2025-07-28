@@ -500,7 +500,16 @@ jobs:
         run: |
           echo "=== CONFIGURING EXTERNAL SECRETS ==="
           
+          echo "Getting AWS account ID..."
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "Raw account ID: '$ACCOUNT_ID'"
+          
+          if [[ -z "$ACCOUNT_ID" || "$ACCOUNT_ID" == "None" ]]; then
+            echo "❌ Failed to get account ID, trying alternative method..."
+            ACCOUNT_ID=$(aws sts get-caller-identity --output text --query 'Account')
+            echo "Alternative account ID: '$ACCOUNT_ID'"
+          fi
+          
           ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/external-secrets-role"
           
           echo "Account ID: $ACCOUNT_ID"
