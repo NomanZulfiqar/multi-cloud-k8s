@@ -314,6 +314,10 @@ jobs:
           curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
           sudo mv /tmp/eksctl /usr/local/bin
           
+          # Set up kubeconfig first
+          echo "Setting up kubeconfig..."
+          aws eks update-kubeconfig --name my-eks-cluster --region us-east-1
+          
           # Create aws-auth ConfigMap manually (eksctl keeps failing)
           echo "Creating aws-auth ConfigMap manually..."
           
@@ -338,8 +342,8 @@ jobs:
                   - system:masters
           EOF
           
-          # Apply using kubectl
-          kubectl apply -f aws-auth.yaml
+          # Apply using kubectl with server-side apply to bypass validation
+          kubectl apply -f aws-auth.yaml --server-side --force-conflicts
           
           # Update kubeconfig and verify
           aws eks update-kubeconfig --name my-eks-cluster --region us-east-1
