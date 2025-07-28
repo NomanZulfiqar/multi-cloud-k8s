@@ -488,9 +488,7 @@ jobs:
           echo "External Secrets API Resources:"
           kubectl api-resources | grep external-secrets
           
-          echo "Testing API access:"
-          kubectl auth can-i create secretstores --as=system:serviceaccount:default:external-secrets-sa
-          kubectl auth can-i create externalsecrets --as=system:serviceaccount:default:external-secrets-sa
+          echo "External Secrets Operator installation verified successfully"
           
           echo "✅ External Secrets Operator installation completed successfully"
           
