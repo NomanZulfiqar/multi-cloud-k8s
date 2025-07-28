@@ -314,9 +314,32 @@ jobs:
           curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
           sudo mv /tmp/eksctl /usr/local/bin
           
-          # Create aws-auth using eksctl (most reliable method)
-          echo "Creating aws-auth ConfigMap using eksctl..."
-          eksctl create iamidentitymapping --cluster my-eks-cluster --region us-east-1 --arn "arn:aws:iam::${ACCOUNT_ID}:root" --group system:masters --username root --timeout 10m
+          # Create aws-auth ConfigMap manually (eksctl keeps failing)
+          echo "Creating aws-auth ConfigMap manually..."
+          
+          # Create aws-auth ConfigMap YAML
+          cat > aws-auth.yaml <<EOF
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: aws-auth
+            namespace: kube-system
+          data:
+            mapRoles: |
+              - rolearn: $NODE_ROLE_ARN
+                username: system:node:{{EC2PrivateDNSName}}
+                groups:
+                  - system:bootstrappers
+                  - system:nodes
+            mapUsers: |
+              - userarn: arn:aws:iam::$ACCOUNT_ID:root
+                username: root
+                groups:
+                  - system:masters
+          EOF
+          
+          # Apply using kubectl
+          kubectl apply -f aws-auth.yaml
           
           # Update kubeconfig and verify
           aws eks update-kubeconfig --name my-eks-cluster --region us-east-1
