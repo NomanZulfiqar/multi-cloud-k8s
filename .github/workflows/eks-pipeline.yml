@@ -171,7 +171,13 @@ jobs:
         run: |
           echo "Applying Terraform configuration..."
           if ! terraform apply -auto-approve tfplan 2>&1 | tee apply_output.log; then
-            if grep -q "already exists\|already in state\|no changes" apply_output.log; then
+            # Check for VPC/subnet group errors FIRST (most common issue)
+            if grep -q "CacheSubnetGroupNotFoundFault\|DBSubnetGroupNotFoundFault\|subnet group.*does not exist\|not found\|InvalidParameterCombination.*Subnet group.*belongs to a different VPC\|InvalidVPCNetworkStateFault" apply_output.log; then
+              echo "❌ VPC/SUBNET GROUP ERROR - PIPELINE FAILED"
+              echo "Infrastructure error - subnet groups missing or in wrong VPC"
+              cat apply_output.log
+              exit 1
+            elif grep -q "already exists\|already in state\|no changes" apply_output.log; then
               echo "✅ Resources already exist, continuing"
             elif grep -q "state lock\|ConditionalCheckFailedException" apply_output.log; then
               echo "❌ State lock error - this is an authentic error"
@@ -189,11 +195,6 @@ jobs:
               echo "✅ Kubernetes resources already exist, continuing"
             elif grep -q "server has asked for the client to provide credentials\|Unauthorized\|authentication required" apply_output.log; then
               echo "❌ Kubernetes authentication error - this is an authentic error"
-              cat apply_output.log
-              exit 1
-            elif grep -q "CacheSubnetGroupNotFoundFault\|DBSubnetGroupNotFoundFault\|subnet group.*does not exist\|not found\|InvalidParameterException.*subnets belong to the AZs\|InvalidParameterCombination.*Subnet group.*belongs to a different VPC\|InvalidVPCNetworkStateFault" apply_output.log; then
-              echo "❌ VPC/SUBNET GROUP ERROR - PIPELINE MUST FAIL"
-              echo "This is a real infrastructure error, not continuing"
               cat apply_output.log
               exit 1
             else
