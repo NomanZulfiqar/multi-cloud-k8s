@@ -383,14 +383,26 @@ jobs:
             --namespace external-secrets \
             --create-namespace \
             --set installCRDs=true \
-            --wait
+            --wait --timeout=10m
           
           # Wait for operator to be ready
-          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=external-secrets -n external-secrets --timeout=300s
+          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=external-secrets -n external-secrets --timeout=600s
+          
+          # Wait for CRDs to be fully available
+          echo "Waiting for CRDs to be available..."
+          for i in {1..30}; do
+            if kubectl get crd secretstores.external-secrets.io &>/dev/null; then
+              echo "✅ SecretStore CRD is available"
+              break
+            else
+              echo "Waiting for CRDs... ($i/30)"
+              sleep 10
+            fi
+          done
           
           # Verify CRDs are installed
-          kubectl get crd | grep external-secrets || echo "CRDs not found"
-          kubectl api-resources | grep SecretStore || echo "SecretStore API not available"
+          kubectl get crd | grep external-secrets
+          kubectl api-resources | grep SecretStore
 
       - name: Configure External Secrets for AWS Secrets Manager
         run: |
