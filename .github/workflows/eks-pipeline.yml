@@ -504,6 +504,42 @@ jobs:
               eks.amazonaws.com/role-arn: $ROLE_ARN
           EOF
           
+          # Create ClusterRole for external-secrets
+          echo "Creating ClusterRole for external-secrets..."
+          kubectl apply -f - <<EOF
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          metadata:
+            name: external-secrets-controller
+          rules:
+          - apiGroups: ["external-secrets.io"]
+            resources: ["secretstores", "externalsecrets", "clustersecretstores"]
+            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+          - apiGroups: [""]
+            resources: ["secrets"]
+            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+          - apiGroups: [""]
+            resources: ["events"]
+            verbs: ["create", "patch"]
+          EOF
+          
+          # Create ClusterRoleBinding
+          echo "Creating ClusterRoleBinding..."
+          kubectl apply -f - <<EOF
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: external-secrets-controller
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: external-secrets-controller
+          subjects:
+          - kind: ServiceAccount
+            name: external-secrets-sa
+            namespace: default
+          EOF
+          
           # Verify service account
           kubectl get serviceaccount external-secrets-sa -o yaml
           
