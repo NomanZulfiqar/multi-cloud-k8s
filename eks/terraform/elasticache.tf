@@ -6,6 +6,7 @@ resource "aws_elasticache_subnet_group" "cache_subnet_group" {
   
   lifecycle {
     ignore_changes = [subnet_ids]
+    prevent_destroy = true
   }
 }
 

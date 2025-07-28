@@ -6,6 +6,7 @@ resource "aws_db_subnet_group" "postgres" {
 
   lifecycle {
     ignore_changes = [subnet_ids]
+    prevent_destroy = true
   }
   
   tags = {
