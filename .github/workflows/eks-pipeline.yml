@@ -105,18 +105,27 @@ jobs:
 
       - name: Clean up old subnet groups from different VPCs
         run: |
-          echo "Cleaning up old subnet groups from different VPCs..."
+          echo "Aggressively cleaning up old subnet groups..."
           
-          # Delete ElastiCache subnet group if it exists
+          # Delete ElastiCache cluster first if it exists
+          aws elasticache delete-cache-cluster --cache-cluster-id eks-redis || echo "ElastiCache cluster may not exist"
+          
+          # Delete RDS instance first if it exists  
+          aws rds delete-db-instance --db-instance-identifier eks-postgres --skip-final-snapshot || echo "RDS instance may not exist"
+          
+          # Wait for resources to be deleted
+          sleep 60
+          
+          # Delete ElastiCache subnet group
           aws elasticache delete-cache-subnet-group --cache-subnet-group-name cache-subnet-group || echo "ElastiCache subnet group may not exist"
           
-          # Delete RDS subnet group if it exists
+          # Delete RDS subnet group
           aws rds delete-db-subnet-group --db-subnet-group-name postgres-subnet-group || echo "RDS subnet group may not exist"
           
-          # Wait for deletion
-          sleep 30
+          # Wait longer for complete deletion
+          sleep 60
           
-          echo "Old subnet groups cleaned up"
+          echo "Aggressive cleanup completed"
 
       - name: Import existing resources
         run: |
@@ -165,7 +174,7 @@ jobs:
               cat apply_output.log
               exit 1
             elif grep -q "CacheSubnetGroupNotFoundFault\|DBSubnetGroupNotFoundFault\|subnet group.*does not exist\|not found\|InvalidParameterException.*subnets belong to the AZs" apply_output.log; then
-              echo "❌ Database/VPC subnet error - FAILING PIPELINE"
+              echo "❌ DATABASE SUBNET GROUP ERROR - PIPELINE FAILED"
               cat apply_output.log
               exit 1
             else
@@ -307,7 +316,7 @@ jobs:
           
           # Create aws-auth using eksctl (most reliable method)
           echo "Creating aws-auth ConfigMap using eksctl..."
-          eksctl create iamidentitymapping --cluster my-eks-cluster --region us-east-1 --arn arn:aws:iam::$ACCOUNT_ID:root --group system:masters --username root --timeout 10m
+          eksctl create iamidentitymapping --cluster my-eks-cluster --region us-east-1 --arn "arn:aws:iam::${ACCOUNT_ID}:root" --group system:masters --username root --timeout 10m
           
           # Update kubeconfig and verify
           aws eks update-kubeconfig --name my-eks-cluster --region us-east-1
