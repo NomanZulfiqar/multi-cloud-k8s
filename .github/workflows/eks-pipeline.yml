@@ -540,6 +540,7 @@ jobs:
           kubectl delete validatingwebhookconfiguration external-secrets || echo "external-secrets not found"
           kubectl delete validatingwebhookconfiguration external-secrets-webhook || echo "external-secrets-webhook not found"
           kubectl delete validatingwebhookconfiguration external-secrets-validating-webhook || echo "external-secrets-validating-webhook not found"
+          kubectl delete validatingwebhookconfiguration secretstore-validate || echo "secretstore-validate not found"
           
           # Delete by labels/selectors
           kubectl get validatingwebhookconfigurations -o name | grep external | xargs -r kubectl delete || echo "No external webhooks found"
