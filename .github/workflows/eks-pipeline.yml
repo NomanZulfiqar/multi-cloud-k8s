@@ -103,29 +103,18 @@ jobs:
           name: tfplan
           path: ./eks/terraform
 
-      - name: Clean up old subnet groups from different VPCs
+      - name: Clean up old subnet groups only (preserve databases)
         run: |
-          echo "Aggressively cleaning up old subnet groups..."
+          echo "Cleaning up old subnet groups only..."
           
-          # Delete ElastiCache cluster first if it exists
-          aws elasticache delete-cache-cluster --cache-cluster-id eks-redis || echo "ElastiCache cluster may not exist"
-          
-          # Delete RDS instance first if it exists  
-          aws rds delete-db-instance --db-instance-identifier eks-postgres --skip-final-snapshot || echo "RDS instance may not exist"
-          
-          # Wait for resources to be deleted
-          sleep 60
-          
-          # Delete ElastiCache subnet group
+          # Only delete subnet groups, NOT the databases
           aws elasticache delete-cache-subnet-group --cache-subnet-group-name cache-subnet-group || echo "ElastiCache subnet group may not exist"
-          
-          # Delete RDS subnet group
           aws rds delete-db-subnet-group --db-subnet-group-name postgres-subnet-group || echo "RDS subnet group may not exist"
           
-          # Wait longer for complete deletion
-          sleep 60
+          # Wait for subnet group deletion
+          sleep 30
           
-          echo "Aggressive cleanup completed"
+          echo "Subnet group cleanup completed"
 
       - name: Import existing resources
         run: |
@@ -389,14 +378,19 @@ jobs:
           helm repo add external-secrets https://charts.external-secrets.io
           helm repo update
           
-          # Install External Secrets Operator
+          # Install External Secrets Operator with CRDs
           helm upgrade --install external-secrets external-secrets/external-secrets \
             --namespace external-secrets \
             --create-namespace \
+            --set installCRDs=true \
             --wait
           
           # Wait for operator to be ready
           kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=external-secrets -n external-secrets --timeout=300s
+          
+          # Verify CRDs are installed
+          kubectl get crd | grep external-secrets || echo "CRDs not found"
+          kubectl api-resources | grep SecretStore || echo "SecretStore API not available"
 
       - name: Configure External Secrets for AWS Secrets Manager
         run: |
