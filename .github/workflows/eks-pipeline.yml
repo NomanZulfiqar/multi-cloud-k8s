@@ -343,12 +343,31 @@ jobs:
           EOF
           
           # Apply using kubectl with server-side apply to bypass validation
-          kubectl apply -f aws-auth.yaml --server-side --force-conflicts
+          if kubectl apply -f aws-auth.yaml --server-side --force-conflicts; then
+            echo "✅ aws-auth ConfigMap created successfully"
+          else
+            echo "❌ Failed to create aws-auth ConfigMap"
+            exit 1
+          fi
           
-          # Update kubeconfig and verify
-          aws eks update-kubeconfig --name my-eks-cluster --region us-east-1
-          kubectl get nodes
-          kubectl get pods -A
+          # Wait for ConfigMap to take effect
+          sleep 30
+          
+          # Verify ConfigMap exists
+          echo "Verifying aws-auth ConfigMap..."
+          kubectl get configmap aws-auth -n kube-system
+          
+          # Test cluster access
+          echo "Testing cluster access..."
+          if kubectl get nodes; then
+            echo "✅ Cluster access working"
+            kubectl get pods -A
+          else
+            echo "❌ Cluster access still failing"
+            echo "ConfigMap content:"
+            kubectl get configmap aws-auth -n kube-system -o yaml
+            exit 1
+          fi
 
       - name: Create ECR Pull Secret
         run: |
