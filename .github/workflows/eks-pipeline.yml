@@ -530,6 +530,11 @@ jobs:
           echo "Annotating External Secrets service account with IAM role..."
           kubectl annotate serviceaccount external-secrets -n external-secrets eks.amazonaws.com/role-arn=$ROLE_ARN --overwrite
           
+          # Restart External Secrets pods to pick up new IAM role
+          echo "Restarting External Secrets pods to pick up IAM role..."
+          kubectl rollout restart deployment external-secrets -n external-secrets
+          kubectl rollout status deployment external-secrets -n external-secrets --timeout=300s
+          
           # Verify External Secrets service account exists
           kubectl get serviceaccount external-secrets -n external-secrets -o yaml
           
