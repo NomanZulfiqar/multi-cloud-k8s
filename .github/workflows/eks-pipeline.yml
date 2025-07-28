@@ -363,52 +363,137 @@ jobs:
         with:
           version: 'v3.8.0'
 
-      - name: Install External Secrets Operator
+      - name: Install External Secrets Operator with Full Diagnostics
         run: |
-          echo "Installing External Secrets Operator..."
+          echo "=== INSTALLING EXTERNAL SECRETS OPERATOR ==="
+          
+          # Add helm repo
           helm repo add external-secrets https://charts.external-secrets.io
           helm repo update
           
+          # Show available chart versions
+          echo "Available External Secrets chart versions:"
+          helm search repo external-secrets/external-secrets --versions | head -5
+          
           # Install External Secrets Operator with CRDs
-          helm upgrade --install external-secrets external-secrets/external-secrets \
+          echo "Installing External Secrets Operator..."
+          if ! helm upgrade --install external-secrets external-secrets/external-secrets \
             --namespace external-secrets \
             --create-namespace \
             --set installCRDs=true \
-            --wait --timeout=10m
+            --set webhook.port=9443 \
+            --wait --timeout=15m; then
+            echo "❌ Helm install failed"
+            kubectl get pods -n external-secrets
+            kubectl describe pods -n external-secrets
+            exit 1
+          fi
           
-          # Wait for operator to be ready
-          kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=external-secrets -n external-secrets --timeout=600s
+          echo "✅ Helm install completed"
           
-          # Wait for CRDs to be fully available with longer timeout
-          echo "Waiting for CRDs to be available..."
-          sleep 60
+          # Check pod status
+          echo "=== CHECKING POD STATUS ==="
+          kubectl get pods -n external-secrets
+          kubectl get events -n external-secrets --sort-by='.lastTimestamp'
           
-          for i in {1..60}; do
-            if kubectl get crd secretstores.external-secrets.io &>/dev/null && kubectl get crd externalsecrets.external-secrets.io &>/dev/null; then
-              echo "✅ All External Secrets CRDs are available"
+          # Wait for operator pods to be ready
+          echo "Waiting for operator pods to be ready..."
+          if ! kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=external-secrets -n external-secrets --timeout=600s; then
+            echo "❌ Pods not ready, showing diagnostics:"
+            kubectl get pods -n external-secrets -o wide
+            kubectl describe pods -n external-secrets
+            kubectl logs -n external-secrets -l app.kubernetes.io/name=external-secrets --tail=50
+            exit 1
+          fi
+          
+          echo "✅ All pods are ready"
+          
+          # Wait and check for CRDs with detailed diagnostics
+          echo "=== CHECKING CRDs ==="
+          sleep 30
+          
+          # List all CRDs first
+          echo "All CRDs in cluster:"
+          kubectl get crd | grep -E "(external-secrets|secretstore|externalsecret)" || echo "No External Secrets CRDs found yet"
+          
+          # Check specific CRDs with retry
+          for i in {1..30}; do
+            echo "CRD check attempt $i/30..."
+            
+            SECRETSTORE_CRD=$(kubectl get crd secretstores.external-secrets.io 2>/dev/null || echo "NOT_FOUND")
+            EXTERNALSECRET_CRD=$(kubectl get crd externalsecrets.external-secrets.io 2>/dev/null || echo "NOT_FOUND")
+            
+            if [[ "$SECRETSTORE_CRD" != "NOT_FOUND" ]] && [[ "$EXTERNALSECRET_CRD" != "NOT_FOUND" ]]; then
+              echo "✅ All required CRDs are available"
               break
             else
-              echo "Waiting for CRDs... ($i/60)"
+              echo "Missing CRDs - SecretStore: $([[ "$SECRETSTORE_CRD" == "NOT_FOUND" ]] && echo "MISSING" || echo "FOUND"), ExternalSecret: $([[ "$EXTERNALSECRET_CRD" == "NOT_FOUND" ]] && echo "MISSING" || echo "FOUND")"
+              
+              if [[ $i -eq 30 ]]; then
+                echo "❌ CRDs not available after 5 minutes, showing diagnostics:"
+                kubectl get crd | grep external || echo "No external-secrets CRDs found"
+                kubectl api-resources | grep external || echo "No external-secrets API resources"
+                kubectl get pods -n external-secrets -o wide
+                kubectl logs -n external-secrets -l app.kubernetes.io/name=external-secrets --tail=100
+                kubectl describe crd secretstores.external-secrets.io || echo "SecretStore CRD not found"
+                kubectl describe crd externalsecrets.external-secrets.io || echo "ExternalSecret CRD not found"
+                exit 1
+              fi
+              
               sleep 10
             fi
           done
           
-          # Final verification
+          # Final verification with API resources
+          echo "=== FINAL VERIFICATION ==="
+          echo "External Secrets CRDs:"
           kubectl get crd | grep external-secrets
+          
+          echo "External Secrets API Resources:"
           kubectl api-resources | grep external-secrets
+          
+          echo "Testing API access:"
+          kubectl auth can-i create secretstores --as=system:serviceaccount:default:external-secrets-sa
+          kubectl auth can-i create externalsecrets --as=system:serviceaccount:default:external-secrets-sa
+          
+          echo "✅ External Secrets Operator installation completed successfully"
           
           # Verify CRDs are installed
           kubectl get crd | grep external-secrets
           kubectl api-resources | grep SecretStore
 
-      - name: Configure External Secrets for AWS Secrets Manager
+      - name: Configure External Secrets for AWS Secrets Manager with Diagnostics
         run: |
+          echo "=== CONFIGURING EXTERNAL SECRETS ==="
+          
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/external-secrets-role"
           
-          echo "Creating External Secrets configuration..."
+          echo "Account ID: $ACCOUNT_ID"
+          echo "Role ARN: $ROLE_ARN"
           
-          # Create service account with IAM role annotation in default namespace
+          # Verify IAM role exists
+          echo "Verifying IAM role exists..."
+          if aws iam get-role --role-name external-secrets-role &>/dev/null; then
+            echo "✅ IAM role exists"
+          else
+            echo "❌ IAM role does not exist"
+            aws iam list-roles | grep external-secrets || echo "No external-secrets roles found"
+            exit 1
+          fi
+          
+          # Verify AWS Secrets Manager secret exists
+          echo "Verifying AWS Secrets Manager secret exists..."
+          if aws secretsmanager describe-secret --secret-id myapp/db-credentials &>/dev/null; then
+            echo "✅ AWS Secrets Manager secret exists"
+          else
+            echo "❌ AWS Secrets Manager secret does not exist"
+            aws secretsmanager list-secrets | grep myapp || echo "No myapp secrets found"
+            exit 1
+          fi
+          
+          # Create service account with detailed verification
+          echo "Creating service account..."
           kubectl apply -f - <<EOF
           apiVersion: v1
           kind: ServiceAccount
@@ -419,8 +504,21 @@ jobs:
               eks.amazonaws.com/role-arn: $ROLE_ARN
           EOF
           
-          # Create SecretStore for AWS Secrets Manager
-          kubectl apply -f - <<EOF
+          # Verify service account
+          kubectl get serviceaccount external-secrets-sa -o yaml
+          
+          # Test API access before creating resources
+          echo "Testing API access for SecretStore..."
+          if kubectl auth can-i create secretstores; then
+            echo "✅ Can create SecretStores"
+          else
+            echo "❌ Cannot create SecretStores"
+            kubectl auth can-i --list | grep secretstore || echo "No secretstore permissions"
+          fi
+          
+          # Create SecretStore with error handling
+          echo "Creating SecretStore..."
+          if kubectl apply -f - <<EOF
           apiVersion: external-secrets.io/v1beta1
           kind: SecretStore
           metadata:
@@ -436,9 +534,21 @@ jobs:
                     serviceAccountRef:
                       name: external-secrets-sa
           EOF
+          then
+            echo "✅ SecretStore created successfully"
+          else
+            echo "❌ Failed to create SecretStore"
+            kubectl get crd secretstores.external-secrets.io || echo "SecretStore CRD not found"
+            kubectl api-resources | grep SecretStore || echo "SecretStore API not available"
+            exit 1
+          fi
           
-          # Create ExternalSecret to sync from AWS Secrets Manager
-          kubectl apply -f - <<EOF
+          # Verify SecretStore
+          kubectl get secretstore aws-secrets-manager -o yaml
+          
+          # Create ExternalSecret with error handling
+          echo "Creating ExternalSecret..."
+          if kubectl apply -f - <<EOF
           apiVersion: external-secrets.io/v1beta1
           kind: ExternalSecret
           metadata:
@@ -462,15 +572,48 @@ jobs:
                 key: myapp/db-credentials
                 property: password
           EOF
+          then
+            echo "✅ ExternalSecret created successfully"
+          else
+            echo "❌ Failed to create ExternalSecret"
+            kubectl get crd externalsecrets.external-secrets.io || echo "ExternalSecret CRD not found"
+            kubectl api-resources | grep ExternalSecret || echo "ExternalSecret API not available"
+            exit 1
+          fi
           
-          # Wait for secret to be synced
-          echo "Waiting for secret sync from AWS Secrets Manager..."
-          kubectl wait --for=condition=Ready externalsecret/db-credentials-sync --timeout=300s
+          # Monitor ExternalSecret status with detailed diagnostics
+          echo "Monitoring ExternalSecret status..."
+          for i in {1..30}; do
+            STATUS=$(kubectl get externalsecret db-credentials-sync -o jsonpath='{.status.conditions[0].type}' 2>/dev/null || echo "Unknown")
+            echo "ExternalSecret status ($i/30): $STATUS"
+            
+            if [[ "$STATUS" == "Ready" ]]; then
+              echo "✅ ExternalSecret is Ready"
+              break
+            elif [[ $i -eq 30 ]]; then
+              echo "❌ ExternalSecret not ready after 5 minutes, showing diagnostics:"
+              kubectl describe externalsecret db-credentials-sync
+              kubectl get events --field-selector involvedObject.name=db-credentials-sync
+              kubectl logs -n external-secrets -l app.kubernetes.io/name=external-secrets --tail=50
+              exit 1
+            fi
+            
+            sleep 10
+          done
           
-          # Verify the secret was created
-          echo "Verifying secret was synced from AWS Secrets Manager..."
-          kubectl get secret db-credentials
-          kubectl describe externalsecret db-credentials-sync
+          # Final verification
+          echo "=== FINAL VERIFICATION ==="
+          if kubectl get secret db-credentials &>/dev/null; then
+            echo "✅ Secret db-credentials created successfully"
+            kubectl get secret db-credentials -o yaml | grep -E "username|password" || echo "Secret data not visible (normal)"
+          else
+            echo "❌ Secret db-credentials not found"
+            kubectl get secrets
+            kubectl describe externalsecret db-credentials-sync
+            exit 1
+          fi
+          
+          echo "✅ External Secrets configuration completed successfully"
 
       - name: Deploy Database
         run: |
