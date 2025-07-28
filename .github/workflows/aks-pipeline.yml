@@ -184,6 +184,12 @@ jobs:
               echo "❌ Kubernetes connection error - this is an authentic error"
               cat apply_output.log
               exit 1
+            elif grep -q "already exists\|AlreadyExists" apply_output.log && grep -q "configmaps\|secrets\|serviceaccounts" apply_output.log; then
+              echo "✅ Kubernetes resources already exist, continuing"
+            elif grep -q "server has asked for the client to provide credentials\|Unauthorized\|authentication required" apply_output.log; then
+              echo "❌ Kubernetes authentication error - this is an authentic error"
+              cat apply_output.log
+              exit 1
             else
               echo "⚠️ Apply failed, trying without plan..."
               if ! terraform apply -auto-approve 2>&1 | tee apply_retry.log; then
