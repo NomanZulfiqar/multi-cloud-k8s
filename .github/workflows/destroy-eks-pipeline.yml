@@ -157,6 +157,28 @@ jobs:
             echo "No RDS instances found to delete"
           fi
           
+      - name: Delete Subnet Groups
+        run: |
+          echo "Deleting subnet groups after databases are deleted..."
+          
+          # Delete ElastiCache subnet group
+          if aws elasticache describe-cache-subnet-groups --cache-subnet-group-name cache-subnet-group &>/dev/null; then
+            echo "Deleting ElastiCache subnet group..."
+            aws elasticache delete-cache-subnet-group --cache-subnet-group-name cache-subnet-group || echo "Failed to delete ElastiCache subnet group"
+          else
+            echo "ElastiCache subnet group already deleted"
+          fi
+          
+          # Delete RDS subnet group
+          if aws rds describe-db-subnet-groups --db-subnet-group-name postgres-subnet-group &>/dev/null; then
+            echo "Deleting RDS subnet group..."
+            aws rds delete-db-subnet-group --db-subnet-group-name postgres-subnet-group || echo "Failed to delete RDS subnet group"
+          else
+            echo "RDS subnet group already deleted"
+          fi
+          
+          echo "Subnet group deletion completed"
+
       - name: Delete AWS Secrets Manager Secret
         run: |
           echo "Deleting AWS Secrets Manager secret..."
