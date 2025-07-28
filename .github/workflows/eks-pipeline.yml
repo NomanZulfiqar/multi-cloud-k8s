@@ -535,7 +535,7 @@ jobs:
           
           # Disable webhook temporarily to avoid timeout
           echo "Disabling External Secrets webhook temporarily..."
-          kubectl delete validatingadmissionwebhook external-secrets-webhook || echo "Webhook may not exist"
+          kubectl delete validatingwebhookconfiguration external-secrets-webhook || echo "Webhook may not exist"
           sleep 10
           
           # Create SecretStore with error handling (bypass webhook validation)
