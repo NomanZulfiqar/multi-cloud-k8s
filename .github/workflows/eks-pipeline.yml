@@ -103,10 +103,41 @@ jobs:
           name: tfplan
           path: ./eks/terraform
 
-      - name: Skip all cleanup to prevent subnet group issues
+      - name: One-time VPC mismatch cleanup
         run: |
-          echo "Skipping all cleanup to prevent subnet group deletion"
-          echo "Terraform will handle resource management automatically"
+          echo "Checking for VPC mismatch and cleaning up if needed..."
+          
+          # Get the VPC that will be created/used
+          EXPECTED_VPC=$(aws ec2 describe-vpcs --filters "Name=tag:Name,Values=eks-vpc" --query 'Vpcs[0].VpcId' --output text 2>/dev/null || echo "None")
+          
+          # If no VPC exists yet, skip cleanup
+          if [[ "$EXPECTED_VPC" == "None" ]]; then
+            echo "No existing VPC found, skipping cleanup"
+            exit 0
+          fi
+          
+          echo "Expected VPC: $EXPECTED_VPC"
+          
+          # Check and delete ElastiCache subnet group if in wrong VPC
+          if aws elasticache describe-cache-subnet-groups --cache-subnet-group-name cache-subnet-group &>/dev/null; then
+            CACHE_VPC=$(aws elasticache describe-cache-subnet-groups --cache-subnet-group-name cache-subnet-group --query 'CacheSubnetGroups[0].VpcId' --output text)
+            if [[ "$CACHE_VPC" != "$EXPECTED_VPC" ]]; then
+              echo "ElastiCache subnet group in wrong VPC ($CACHE_VPC), deleting..."
+              aws elasticache delete-cache-subnet-group --cache-subnet-group-name cache-subnet-group
+            fi
+          fi
+          
+          # Check and delete RDS subnet group if in wrong VPC
+          if aws rds describe-db-subnet-groups --db-subnet-group-name postgres-subnet-group &>/dev/null; then
+            RDS_VPC=$(aws rds describe-db-subnet-groups --db-subnet-group-name postgres-subnet-group --query 'DBSubnetGroups[0].VpcId' --output text)
+            if [[ "$RDS_VPC" != "$EXPECTED_VPC" ]]; then
+              echo "RDS subnet group in wrong VPC ($RDS_VPC), deleting..."
+              aws rds delete-db-subnet-group --db-subnet-group-name postgres-subnet-group
+            fi
+          fi
+          
+          sleep 30
+          echo "VPC mismatch cleanup completed"
 
       - name: Import existing resources
         run: |
