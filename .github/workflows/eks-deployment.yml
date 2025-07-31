@@ -1,0 +1,288 @@
+name: EKS Deployment Pipeline
+
+on:
+  workflow_dispatch: # Manual trigger only
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'eks/app/**'
+      - 'eks/helm-charts/**'
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  build-and-push:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Get ECR Repository URL
+        id: ecr-url
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_REPOSITORY_URL="${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/myapp"
+          echo "ECR_REPOSITORY_URL=$ECR_REPOSITORY_URL" >> $GITHUB_OUTPUT
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: ./eks/app
+          push: true
+          tags: ${{ steps.ecr-url.outputs.ECR_REPOSITORY_URL }}:latest
+
+  deploy-kubernetes:
+    name: Deploy to Kubernetes
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'latest'
+
+      - name: Get Outputs
+        id: terraform-outputs
+        run: |
+          CLUSTER_NAME="my-eks-cluster"
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ECR_URL="${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/myapp"
+          ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/external-secrets-role"
+          echo "CLUSTER_NAME=$CLUSTER_NAME" >> $GITHUB_OUTPUT
+          echo "ECR_REPOSITORY_URL=$ECR_URL" >> $GITHUB_OUTPUT
+          echo "EXTERNAL_SECRETS_ROLE_ARN=$ROLE_ARN" >> $GITHUB_OUTPUT
+
+      - name: Create aws-auth ConfigMap and verify access
+        run: |
+          echo "Waiting for EKS cluster to be ready..."
+          aws eks wait cluster-active --name my-eks-cluster --region us-east-1
+          sleep 30
+          
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          NODE_GROUP_NAME=$(aws eks list-nodegroups --cluster-name my-eks-cluster --region us-east-1 --query 'nodegroups[0]' --output text)
+          NODE_ROLE_ARN=$(aws eks describe-nodegroup --cluster-name my-eks-cluster --nodegroup-name $NODE_GROUP_NAME --region us-east-1 --query 'nodegroup.nodeRole' --output text)
+          
+          echo "Account ID: $ACCOUNT_ID"
+          echo "Node Group: $NODE_GROUP_NAME"
+          echo "Node Role ARN: $NODE_ROLE_ARN"
+          
+          curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
+          sudo mv /tmp/eksctl /usr/local/bin
+          
+          echo "Setting up kubeconfig..."
+          aws eks update-kubeconfig --name my-eks-cluster --region us-east-1
+          
+          echo "Creating aws-auth ConfigMap manually..."
+          
+          cat > aws-auth.yaml <<EOF
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: aws-auth
+            namespace: kube-system
+          data:
+            mapRoles: |
+              - rolearn: $NODE_ROLE_ARN
+                username: system:node:{{EC2PrivateDNSName}}
+                groups:
+                  - system:bootstrappers
+                  - system:nodes
+            mapUsers: |
+              - userarn: arn:aws:iam::$ACCOUNT_ID:root
+                username: root
+                groups:
+                  - system:masters
+          EOF
+          
+          if kubectl apply -f aws-auth.yaml --server-side --force-conflicts; then
+            echo "✅ aws-auth ConfigMap created successfully"
+          else
+            echo "❌ Failed to create aws-auth ConfigMap"
+            exit 1
+          fi
+          
+          sleep 30
+          
+          echo "Verifying aws-auth ConfigMap..."
+          kubectl get configmap aws-auth -n kube-system
+          
+          echo "Testing cluster access..."
+          if kubectl get nodes; then
+            echo "✅ Cluster access working"
+            kubectl get pods -A
+          else
+            echo "❌ Cluster access still failing"
+            kubectl get configmap aws-auth -n kube-system -o yaml
+            exit 1
+          fi
+
+      - name: Create ECR Pull Secret
+        run: |
+          kubectl create secret docker-registry aws-ecr-secret \
+            --docker-server=${{ steps.terraform-outputs.outputs.ECR_REPOSITORY_URL }} \
+            --docker-username=AWS \
+            --docker-password=$(aws ecr get-login-password) \
+            --namespace=default \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: 'v3.8.0'
+
+      - name: Install AWS Secrets Store CSI Driver
+        run: |
+          echo "=== INSTALLING AWS SECRETS STORE CSI DRIVER ==="
+          
+          # Add Helm repository
+          helm repo add secrets-store-csi-driver https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts
+          helm repo update
+          
+          # Install Secrets Store CSI Driver
+          echo "Installing Secrets Store CSI Driver..."
+          helm upgrade --install csi-secrets-store secrets-store-csi-driver/secrets-store-csi-driver \
+            --namespace kube-system \
+            --set syncSecret.enabled=true \
+            --set enableSecretRotation=true \
+            --wait --timeout=10m
+          
+          # Install AWS provider
+          echo "Installing AWS provider..."
+          kubectl apply -f https://raw.githubusercontent.com/aws/secrets-store-csi-driver-provider-aws/main/deployment/aws-provider-installer.yaml
+          
+          # Wait for pods to be ready
+          echo "Waiting for CSI driver pods to be ready..."
+          kubectl wait --for=condition=ready pod -l app=secrets-store-csi-driver -n kube-system --timeout=300s
+          kubectl wait --for=condition=ready pod -l app=csi-secrets-store-provider-aws -n kube-system --timeout=300s
+          
+          echo "✅ AWS Secrets Store CSI Driver installation completed"
+
+      - name: Configure Service Account with IAM Role
+        run: |
+          echo "=== CONFIGURING SERVICE ACCOUNT WITH IAM ROLE ==="
+          
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          ROLE_ARN="arn:aws:iam::${ACCOUNT_ID}:role/external-secrets-role"
+          
+          echo "Account ID: $ACCOUNT_ID"
+          echo "Role ARN: $ROLE_ARN"
+          
+          # Verify IAM role exists
+          if aws iam get-role --role-name external-secrets-role &>/dev/null; then
+            echo "✅ IAM role exists"
+          else
+            echo "❌ IAM role does not exist"
+            exit 1
+          fi
+          
+          # Verify AWS Secrets Manager secret exists
+          if aws secretsmanager describe-secret --secret-id myapp/db-credentials &>/dev/null; then
+            echo "✅ AWS Secrets Manager secret exists"
+          else
+            echo "❌ AWS Secrets Manager secret does not exist"
+            exit 1
+          fi
+          
+          # Create service account with IAM role annotation
+          echo "Creating service account with IAM role..."
+          kubectl create serviceaccount myapp-sa --namespace=default --dry-run=client -o yaml | kubectl apply -f -
+          kubectl annotate serviceaccount myapp-sa -n default eks.amazonaws.com/role-arn=$ROLE_ARN --overwrite
+          
+          # Verify service account
+          kubectl get serviceaccount myapp-sa -n default -o yaml
+
+      - name: Deploy Database
+        run: |
+          echo "=== DEPLOYING DATABASE ==="
+          helm repo add bitnami https://charts.bitnami.com/bitnami
+          helm repo update
+          helm upgrade --install postgres bitnami/postgresql -f ./eks/helm-charts/database/postgres-values.yaml --wait
+
+      - name: Prepare Application Values
+        run: |
+          echo "=== PREPARING APPLICATION VALUES ==="
+          # Replace ECR repository URL in values.yaml
+          sed -i "s|\${ECR_REPOSITORY_URL}|${{ steps.terraform-outputs.outputs.ECR_REPOSITORY_URL }}|g" ./eks/helm-charts/application/values.yaml
+          
+          # Verify the replacement
+          echo "Updated values.yaml:"
+          cat ./eks/helm-charts/application/values.yaml
+
+      - name: Deploy Application with Secret Provider Class
+        run: |
+          echo "=== DEPLOYING APPLICATION ==="
+          
+          # Deploy application with Secret Provider Class
+          helm upgrade --install myapp ./eks/helm-charts/application \
+            --set serviceAccount.name=myapp-sa \
+            --set serviceAccount.create=false \
+            --wait --timeout=10m
+          
+          echo "✅ Application deployed successfully"
+
+      - name: Verify Deployment
+        run: |
+          echo "=== VERIFYING DEPLOYMENT ==="
+          
+          # Check pods status
+          kubectl get pods -l app=myapp
+          kubectl wait --for=condition=ready pod -l app=myapp --timeout=300s
+          
+          # Check service
+          kubectl get service myapp
+          
+          # Check SecretProviderClass
+          kubectl get secretproviderclass
+          kubectl describe secretproviderclass myapp-secrets
+          
+          # Check if secret is created
+          kubectl get secret db-credentials
+          
+          # Get LoadBalancer URL
+          echo "Waiting for LoadBalancer to get external IP..."
+          sleep 60
+          EXTERNAL_IP=$(kubectl get service myapp -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+          
+          if [ -n "$EXTERNAL_IP" ]; then
+            echo "✅ Application accessible at: http://$EXTERNAL_IP"
+            
+            # Test application health
+            for i in {1..10}; do
+              if curl -f http://$EXTERNAL_IP/health 2>/dev/null; then
+                echo "✅ Application health check passed"
+                break
+              else
+                echo "Waiting for application to be ready... ($i/10)"
+                sleep 30
+              fi
+            done
+          else
+            echo "⚠️ LoadBalancer external IP not yet assigned"
+          fi
+          
+          echo "=== DEPLOYMENT VERIFICATION COMPLETED ==="
