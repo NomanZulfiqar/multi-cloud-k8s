@@ -1,5 +1,9 @@
 replicaCount: 1
 
+# Secret sync configuration
+syncSecret:
+  enabled: true  # ensures secrets are written to native K8s secrets
+
 image:
   # This will be replaced with the actual ECR URL in the deploy step
   repository: ${ECR_REPOSITORY_URL}
