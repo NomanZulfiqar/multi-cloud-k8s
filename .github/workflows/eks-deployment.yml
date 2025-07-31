@@ -1,7 +1,12 @@
 name: EKS Deployment Pipeline
 
 on:
-  workflow_dispatch: # Manual trigger only
+  workflow_dispatch: # Manual trigger
+  push:
+    branches: [ secret-sync ]
+    paths:
+      - 'eks/app/**'
+      - 'eks/helm-charts/**'
 
 env:
   AWS_REGION: us-east-1

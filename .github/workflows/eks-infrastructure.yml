@@ -1,7 +1,11 @@
 name: EKS Infrastructure Pipeline
 
 on:
-  workflow_dispatch: # Manual trigger only
+  workflow_dispatch: # Manual trigger
+  push:
+    branches: [ secret-sync ]
+    paths:
+      - 'eks/terraform/**'
 
 env:
   AWS_REGION: us-east-1
@@ -59,7 +63,7 @@ jobs:
     name: Terraform Apply
     needs: terraform-plan
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     defaults:
       run:
         working-directory: ./eks/terraform
