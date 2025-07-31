@@ -203,9 +203,21 @@ jobs:
           # Verify AWS Secrets Manager secret exists
           if aws secretsmanager describe-secret --secret-id myapp/db-credentials &>/dev/null; then
             echo "✅ AWS Secrets Manager secret exists"
+            # Test secret access
+            aws secretsmanager get-secret-value --secret-id myapp/db-credentials --query SecretString --output text
           else
             echo "❌ AWS Secrets Manager secret does not exist"
             exit 1
+          fi
+          
+          # Check IAM role permissions
+          echo "Checking IAM role permissions..."
+          POLICY_DOC=$(aws iam list-attached-role-policies --role-name external-secrets-role --query 'AttachedPolicies[0].PolicyArn' --output text)
+          if [ "$POLICY_DOC" != "None" ]; then
+            echo "✅ IAM role has attached policies"
+          else
+            echo "❌ IAM role missing policies - checking inline policies"
+            aws iam list-role-policies --role-name external-secrets-role
           fi
           
           # Create service account with IAM role annotation
@@ -215,6 +227,10 @@ jobs:
           
           # Verify service account
           kubectl get serviceaccount myapp-sa -n default -o yaml
+          
+          # Test IAM role assumption
+          echo "Testing IAM role assumption..."
+          kubectl run test-iam --image=amazon/aws-cli --serviceaccount=myapp-sa --rm -i --restart=Never -- sts get-caller-identity || echo "IAM role test failed"
 
       - name: Deploy Database
         run: |
