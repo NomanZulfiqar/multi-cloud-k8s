@@ -9,7 +9,8 @@ resource "aws_iam_policy" "secrets_manager_access" {
         Effect = "Allow",
         Action = [
           "secretsmanager:GetSecretValue",
-          "secretsmanager:DescribeSecret"
+          "secretsmanager:DescribeSecret",
+          "secretsmanager:ListSecrets"
         ],
         Resource = [
           aws_secretsmanager_secret.db_credentials.arn
@@ -33,7 +34,10 @@ resource "aws_iam_role" "external_secrets" {
         Action = "sts:AssumeRoleWithWebIdentity",
         Condition = {
           StringEquals = {
-            "${replace(module.eks.cluster_oidc_issuer_url, "https://", "")}:sub": "system:serviceaccount:default:external-secrets-sa"
+            "${replace(module.eks.cluster_oidc_issuer_url, "https://", "")}:sub": [
+              "system:serviceaccount:default:external-secrets-sa",
+              "system:serviceaccount:default:myapp-sa"
+            ]
           }
         }
       }
