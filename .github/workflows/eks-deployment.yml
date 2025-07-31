@@ -241,7 +241,13 @@ jobs:
           helm upgrade --install myapp ./eks/helm-charts/application \
             --set serviceAccount.name=myapp-sa \
             --set serviceAccount.create=false \
-            --wait --timeout=10m
+            --wait --timeout=5m || {
+            echo "❌ Helm deployment failed, checking status..."
+            kubectl get pods -l app=myapp
+            kubectl describe pods -l app=myapp
+            kubectl get events --sort-by='.lastTimestamp' | tail -20
+            exit 1
+          }
           
           echo "✅ Application deployed successfully"
 

@@ -38,17 +38,6 @@ spec:
           value: "5432"
         - name: DB_NAME
           value: "myapp"
-        {{- if .Values.env }}
-        {{- range .Values.env }}
-        - name: {{ .name }}
-          {{- if .value }}
-          value: {{ .value | quote }}
-          {{- else if .valueFrom }}
-          valueFrom:
-            {{- toYaml .valueFrom | nindent 12 }}
-          {{- end }}
-        {{- end }}
-        {{- end }}
         volumeMounts:
         - name: secrets-store
           mountPath: "/mnt/secrets-store"
