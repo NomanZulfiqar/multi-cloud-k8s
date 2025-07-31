@@ -38,6 +38,11 @@ spec:
           value: "5432"
         - name: DB_NAME
           value: "myapp"
+        - name: APPLICATION_PORT
+          valueFrom:
+            secretKeyRef:
+              name: db-credentials
+              key: Application_Port
         volumeMounts:
         - name: secrets-store
           mountPath: "/mnt/secrets-store"
