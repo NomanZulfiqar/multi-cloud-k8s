@@ -66,6 +66,11 @@ env:
       secretKeyRef:
         name: db-credentials
         key: Application_Port
+  - name: API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: db-credentials
+        key: API_KEY
   # Redis cache configuration
   - name: REDIS_HOST
     value: "eks-redis.nlt4fi.0001.use1.cache.amazonaws.com"  # Will be replaced when deploying
