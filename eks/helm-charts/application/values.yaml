@@ -56,4 +56,4 @@ env:
   - name: REDIS_HOST
     value: "eks-redis.nlt4fi.0001.use1.cache.amazonaws.com"  # Will be replaced when deploying
   - name: REDIS_PORT
-    value: "6379"
+    value: "6379"# Trigger deployment with fixed IAM
