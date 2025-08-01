@@ -222,4 +222,4 @@ jobs:
           else
             echo "⚠️ Some resources may still exist - check AWS console"
             echo "💸 You may still be charged for remaining resources"
-          fi
+          fi# Trigger complete destruction
