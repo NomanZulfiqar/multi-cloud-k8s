@@ -201,10 +201,10 @@ jobs:
           fi
           
           # Verify AWS Secrets Manager secret exists
-          if aws secretsmanager describe-secret --secret-id myapp/db-credentials &>/dev/null; then
+          if aws secretsmanager describe-secret --secret-id myapp/db-credentials-v2 &>/dev/null; then
             echo "✅ AWS Secrets Manager secret exists"
             # Test secret access
-            aws secretsmanager get-secret-value --secret-id myapp/db-credentials --query SecretString --output text
+            aws secretsmanager get-secret-value --secret-id myapp/db-credentials-v2 --query SecretString --output text
           else
             echo "❌ AWS Secrets Manager secret does not exist"
             exit 1
