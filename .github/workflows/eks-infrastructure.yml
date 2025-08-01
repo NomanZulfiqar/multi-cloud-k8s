@@ -145,6 +145,17 @@ jobs:
             terraform import module.eks.aws_eks_cluster.this[0] my-eks-cluster || echo "Already in state"
           fi
       
+      - name: Clean up scheduled secrets
+        run: |
+          echo "Checking for scheduled secrets..."
+          if aws secretsmanager describe-secret --secret-id myapp/db-credentials 2>/dev/null | grep -q "DeletionDate"; then
+            echo "Secret is scheduled for deletion, force deleting..."
+            aws secretsmanager delete-secret --secret-id myapp/db-credentials --force-delete-without-recovery || echo "Secret already deleted"
+            sleep 10
+          else
+            echo "No scheduled secret found"
+          fi
+
       - name: Terraform Apply
         run: |
           echo "Applying Terraform configuration..."
