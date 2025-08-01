@@ -1,6 +1,7 @@
 resource "aws_secretsmanager_secret" "db_credentials" {
-  name        = "myapp/db-credentials"
-  description = "Database credentials for the application"
+  name                    = "myapp/db-credentials-v2"
+  description             = "Database credentials for the application"
+  recovery_window_in_days = 0  # Force immediate deletion
   
   tags = {
     Environment = "dev"
