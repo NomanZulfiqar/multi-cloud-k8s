@@ -1,4 +1,23 @@
-.terraform/
-.terraform.lock.hcl
+# Terraform
 *.tfstate
 *.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# AWS
+.aws/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Large files
+awscliv2.zip
+aws/

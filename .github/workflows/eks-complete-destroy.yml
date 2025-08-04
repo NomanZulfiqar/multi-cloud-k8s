@@ -2,10 +2,11 @@ name: EKS Complete Destroy
 
 on:
   workflow_dispatch: # Manual trigger only
-  push:
-    branches: [ secret-sync ]
-    paths:
-      - '.github/workflows/eks-complete-destroy.yml'
+    inputs:
+      confirm_destroy:
+        description: 'Type DESTROY to confirm'
+        required: true
+        default: 'NO'
 
 env:
   AWS_REGION: us-east-1
@@ -14,6 +15,7 @@ jobs:
   destroy-everything:
     name: Complete EKS Destruction
     runs-on: ubuntu-latest
+    if: github.event.inputs.confirm_destroy == 'DESTROY'
     
     steps:
       - name: Checkout code
