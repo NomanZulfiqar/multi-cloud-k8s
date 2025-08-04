@@ -68,6 +68,17 @@ jobs:
       - name: Configure kubectl
         run: aws eks update-kubeconfig --name ${{ env.CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
 
+      - name: Setup Cluster Access
+        run: |
+          # Create ECR pull secret
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          kubectl create secret docker-registry aws-ecr-secret \
+            --docker-server=${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com \
+            --docker-username=AWS \
+            --docker-password=$(aws ecr get-login-password --region us-east-1) \
+            --namespace=default \
+            --dry-run=client -o yaml | kubectl apply -f -
+
       - name: Deploy Application
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
@@ -79,4 +90,4 @@ jobs:
             --set image.repository=$ECR_REPOSITORY_URL \
             --set image.tag=latest \
             --set aws.accountId=$ACCOUNT_ID \
-            --wait --timeout=10m
+            --wait --timeout=5m
