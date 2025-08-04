@@ -38,7 +38,7 @@ spec:
           data:
             mapRoles: |
               - rolearn: $NODE_ROLE_ARN
-                username: system:node:{{EC2PrivateDNSName}}
+                username: system:node:{{"{{EC2PrivateDNSName}}"}}
                 groups:
                   - system:bootstrappers
                   - system:nodes
