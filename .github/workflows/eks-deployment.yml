@@ -68,60 +68,26 @@ jobs:
       - name: Configure kubectl
         run: aws eks update-kubeconfig --name ${{ env.CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
 
-      - name: Install AWS Secrets Store CSI Driver
+      - name: Install CSI Driver
         run: |
-          echo "=== INSTALLING CSI DRIVER ==="
-          
-          # Clean up any existing conflicting resources
-          echo "Cleaning up existing CSI driver resources..."
-          
-          # Remove existing Helm releases that might conflict
-          helm uninstall myapp --namespace default || echo "No myapp release to remove"
-          helm uninstall csi-secrets-store --namespace kube-system || echo "No csi-secrets-store release to remove"
-          
-          # Remove conflicting cluster resources
-          kubectl delete clusterrole secretproviderrotation-role --ignore-not-found=true
-          kubectl delete clusterrolebinding secretproviderrotation-rolebinding --ignore-not-found=true
-          kubectl delete crd secretproviderclasses.secrets-store.csi.x-k8s.io --ignore-not-found=true
-          kubectl delete crd secretproviderclasspodstatuses.secrets-store.csi.x-k8s.io --ignore-not-found=true
-          
-          # Remove CSI driver pods
-          kubectl delete daemonset secrets-store-csi-driver -n kube-system --ignore-not-found=true
-          kubectl delete daemonset csi-secrets-store-provider-aws -n kube-system --ignore-not-found=true
-          
-          echo "Waiting for cleanup to complete..."
-          sleep 30
-          
-          # Fresh installation
-          echo "Installing CSI driver fresh..."
           helm repo add secrets-store-csi-driver https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts
           helm repo update
           
-          helm install csi-secrets-store secrets-store-csi-driver/secrets-store-csi-driver \
+          helm upgrade --install csi-secrets-store secrets-store-csi-driver/secrets-store-csi-driver \
             --namespace kube-system \
             --set syncSecret.enabled=true \
             --set enableSecretRotation=true \
-            --wait --timeout=10m
+            --wait --timeout=5m
           
-          # Install AWS provider
           kubectl apply -f https://raw.githubusercontent.com/aws/secrets-store-csi-driver-provider-aws/main/deployment/aws-provider-installer.yaml
-          
-          # Wait for pods to be ready
-          echo "Waiting for CSI driver pods to be ready..."
-          kubectl wait --for=condition=ready pod -l app=secrets-store-csi-driver -n kube-system --timeout=300s
-          kubectl wait --for=condition=ready pod -l app=csi-secrets-store-provider-aws -n kube-system --timeout=300s
-          
-          echo "✅ CSI driver installed successfully"
 
-      - name: Setup Cluster Access
+      - name: Create ECR Secret
         run: |
-          # Create ECR pull secret
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           kubectl create secret docker-registry aws-ecr-secret \
             --docker-server=${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com \
             --docker-username=AWS \
-            --docker-password=$(aws ecr get-login-password --region us-east-1) \
-            --namespace=default \
+            --docker-password=$(aws ecr get-login-password) \
             --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Deploy Application
@@ -129,18 +95,8 @@ jobs:
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
           ECR_REPOSITORY_URL="${ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com/myapp"
           
-          echo "=== DEPLOYING APPLICATION ==="
-          
-          # Build dependencies (if any)
-          helm dependency build ./eks/helm-charts/application || echo "No dependencies to build"
-          
-          # Deploy application
           helm upgrade --install myapp ./eks/helm-charts/application \
-            --values ./eks/helm-charts/application/values.yaml \
             --set image.repository=$ECR_REPOSITORY_URL \
             --set image.tag=latest \
             --set aws.accountId=$ACCOUNT_ID \
-            --wait --timeout=10m \
-            --debug
-          
-          echo "✅ Application deployed successfully"
+            --wait --timeout=5m
