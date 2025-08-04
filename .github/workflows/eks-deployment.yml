@@ -277,7 +277,7 @@ jobs:
           # Wait for rollout to complete
           kubectl rollout status deployment myapp -n default --timeout=300s
           
-          echo "✅ Deployment restarted successfully"
+          echo "✅ Deployment restarted successfully - secrets auto-synced"
 
       - name: Verify Deployment
         run: |
