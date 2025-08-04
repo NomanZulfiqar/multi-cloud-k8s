@@ -22,27 +22,29 @@ spec:
         ports:
         - containerPort: 80
         env:
+        # Database configuration from values
+        - name: DB_HOST
+          value: {{ .Values.env.database.host | quote }}
+        - name: DB_PORT
+          value: {{ .Values.env.database.port | quote }}
+        - name: DB_NAME
+          value: {{ .Values.env.database.name | quote }}
+        # Redis configuration from values
+        - name: REDIS_HOST
+          value: {{ .Values.env.redis.host | quote }}
+        - name: REDIS_PORT
+          value: {{ .Values.env.redis.port | quote }}
+        # Secrets from SecretProviderClass (single source of truth)
         - name: DB_USERNAME
           valueFrom:
             secretKeyRef:
-              name: db-credentials
+              name: {{ .Values.app.secretName }}
               key: username
         - name: DB_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: db-credentials
+              name: {{ .Values.app.secretName }}
               key: password
-        - name: DB_HOST
-          value: {{ .Values.database.host | quote }}
-        - name: DB_PORT
-          value: {{ .Values.database.port | quote }}
-        - name: DB_NAME
-          value: {{ .Values.database.name | quote }}
-        - name: ENVIRONMENT
-          valueFrom:
-            secretKeyRef:
-              name: db-credentials
-              key: ENVIRONMENT
         volumeMounts:
         - name: secrets-store
           mountPath: "/mnt/secrets-store"

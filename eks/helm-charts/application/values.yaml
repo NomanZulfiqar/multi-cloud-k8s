@@ -28,6 +28,13 @@ aws:
   accountId: "" # Will be set by pipeline
   region: us-east-1
 
+# Secret management (single source of truth)
+secrets:
+  # AWS Secrets Manager configuration
+  awsSecretName: "myapp/db-credentials-v2"
+  # Kubernetes secret name (created by SecretProviderClass)
+  kubernetesSecretName: "db-credentials"
+
 # Auto-sync configuration
 syncSecret:
   enabled: true
@@ -68,37 +75,17 @@ resources:
     cpu: 50m
     memory: 64Mi
 
-# Environment variables will be populated from Terraform outputs
+# Application configuration
+app:
+  secretName: db-credentials  # Single reference to the secret created by SecretProviderClass
+  
+# Environment variables
 env:
-  - name: DB_HOST
-    value: "eks-postgres.cyjm8aommiol.us-east-1.rds.amazonaws.com:5432"  # Will be replaced by the deploy script
-  - name: DB_PORT
-    value: "5432"
-  - name: DB_NAME
-    value: "app_database"
-  - name: DB_USER
-    valueFrom:
-      secretKeyRef:
-        name: db-credentials
-        key: username
-  - name: DB_PASSWORD
-    valueFrom:
-      secretKeyRef:
-        name: db-credentials
-        key: password
-  - name: DB_USERNAME
-    valueFrom:
-      secretKeyRef:
-        name: db-credentials
-        key: username
-  - name: ENVIRONMENT
-    valueFrom:
-      secretKeyRef:
-        name: db-credentials
-        key: ENVIRONMENT
-  # Redis cache configuration
-  - name: REDIS_HOST
-    value: "eks-redis.nlt4fi.0001.use1.cache.amazonaws.com"  # Will be replaced when deploying
-  - name: REDIS_PORT
-    value: "6379"# Trigger deployment with fixed IAM
+  database:
+    host: "eks-postgres.cyjm8aommiol.us-east-1.rds.amazonaws.com"
+    port: "5432"
+    name: "app_database"
+  redis:
+    host: "eks-redis.nlt4fi.0001.use1.cache.amazonaws.com"
+    port: "6379"
   
