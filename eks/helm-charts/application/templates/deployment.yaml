@@ -14,7 +14,7 @@ spec:
       labels:
         app: {{ .Release.Name }}
     spec:
-      serviceAccountName: {{ .Values.serviceAccount.name | default "myapp-sa" }}
+      serviceAccountName: {{ .Release.Name }}-sa
       containers:
       - name: {{ .Release.Name }}
         image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
@@ -33,11 +33,11 @@ spec:
               name: db-credentials
               key: password
         - name: DB_HOST
-          value: "postgres-postgresql"
+          value: {{ .Values.database.host | quote }}
         - name: DB_PORT
-          value: "5432"
+          value: {{ .Values.database.port | quote }}
         - name: DB_NAME
-          value: "myapp"
+          value: {{ .Values.database.name | quote }}
         - name: ENVIRONMENT
           valueFrom:
             secretKeyRef:

@@ -15,6 +15,17 @@ terraform {
   }
 }
 
+# Import existing resources automatically
+import {
+  to = aws_elasticache_cluster.redis
+  id = "eks-redis"
+}
+
+import {
+  to = aws_db_instance.postgres
+  id = "eks-postgres"
+}
+
 provider "aws" {
   region = "us-east-1"  # Changed to us-east-1 region
   # Trigger pipeline

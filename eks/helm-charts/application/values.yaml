@@ -1,6 +1,34 @@
 replicaCount: 1
-# Trigger deployment
 
+# Dependencies
+secretStore:
+  enabled: true
+
+postgresql:
+  enabled: true
+  auth:
+    username: app_user
+    password: app_password
+    database: app_database
+
+# CSI Secrets Store Driver
+secrets-store-csi-driver:
+  syncSecret:
+    enabled: true
+  enableSecretRotation: true
+
+# Database configuration
+database:
+  host: "postgres-postgresql"
+  port: "5432"
+  name: "app_database"
+
+# AWS configuration
+aws:
+  accountId: "" # Will be set by pipeline
+  region: us-east-1
+
+# Auto-sync configuration
 syncSecret:
   enabled: true
 
