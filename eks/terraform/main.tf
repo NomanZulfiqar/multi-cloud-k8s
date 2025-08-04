@@ -17,6 +17,7 @@ terraform {
 
 provider "aws" {
   region = "us-east-1"  # Changed to us-east-1 region
+  # Trigger pipeline
 }
 
 
