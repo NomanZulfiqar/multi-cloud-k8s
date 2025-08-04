@@ -9,7 +9,7 @@ dependencies:
   - name: secrets-store-csi-driver
     version: "1.3.4"
     repository: "https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts"
-    condition: secretsStore.enabled
+    condition: secretStore.enabled
   - name: postgresql
     version: "12.12.10"
     repository: "https://charts.bitnami.com/bitnami"

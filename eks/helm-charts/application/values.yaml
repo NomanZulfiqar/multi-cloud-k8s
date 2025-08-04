@@ -1,21 +1,19 @@
 replicaCount: 1
 
-# Dependencies
+# Dependencies - CSI driver installed separately
 secretStore:
-  enabled: true
+  enabled: false
 
 postgresql:
-  enabled: true
+  enabled: false
   auth:
     username: app_user
     password: app_password
     database: app_database
 
-# CSI Secrets Store Driver
+# CSI Secrets Store Driver - installed separately
 secrets-store-csi-driver:
-  syncSecret:
-    enabled: true
-  enableSecretRotation: true
+  enabled: false
 
 # Database configuration
 database:
