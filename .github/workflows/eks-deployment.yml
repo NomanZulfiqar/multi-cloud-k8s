@@ -131,14 +131,15 @@ jobs:
           
           echo "=== DEPLOYING APPLICATION ==="
           
-          # Deploy without problematic dependencies
+          # Build dependencies (if any)
+          helm dependency build ./eks/helm-charts/application || echo "No dependencies to build"
+          
+          # Deploy application
           helm upgrade --install myapp ./eks/helm-charts/application \
             --values ./eks/helm-charts/application/values.yaml \
             --set image.repository=$ECR_REPOSITORY_URL \
             --set image.tag=latest \
             --set aws.accountId=$ACCOUNT_ID \
-            --set secretStore.enabled=false \
-            --set postgresql.enabled=false \
             --wait --timeout=10m \
             --debug
           
