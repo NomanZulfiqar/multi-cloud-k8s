@@ -15,7 +15,11 @@ terraform {
   }
 }
 
-# Lifecycle management for existing resources
+# Import existing resources
+import {
+  to = module.eks.aws_cloudwatch_log_group.this[0]
+  id = "/aws/eks/my-eks-cluster/cluster"
+}
 
 provider "aws" {
   region = "us-east-1"  # Changed to us-east-1 region
@@ -72,6 +76,10 @@ module "eks" {
   
   # Enable IRSA (IAM Roles for Service Accounts)
   enable_irsa = true
+  
+  # CloudWatch logging configuration
+  cluster_enabled_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
+  cloudwatch_log_group_retention_in_days = 7
   
   # EKS Managed Node Group(s)
   eks_managed_node_groups = {
