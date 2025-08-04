@@ -1,6 +1,9 @@
 replicaCount: 1
 # Trigger deployment
 
+syncSecret:
+  enabled: true
+
 
 
 image:
