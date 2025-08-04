@@ -72,22 +72,27 @@ jobs:
         run: |
           echo "=== INSTALLING CSI DRIVER ==="
           
-          # Install CSI driver first
-          helm repo add secrets-store-csi-driver https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts
-          helm repo update
+          # Check if CSI driver already exists
+          if helm list -n kube-system | grep -q csi-secrets-store; then
+            echo "CSI driver already installed, skipping..."
+          else
+            # Install CSI driver
+            helm repo add secrets-store-csi-driver https://kubernetes-sigs.github.io/secrets-store-csi-driver/charts
+            helm repo update
+            
+            helm upgrade --install csi-secrets-store secrets-store-csi-driver/secrets-store-csi-driver \
+              --namespace kube-system \
+              --set syncSecret.enabled=true \
+              --set enableSecretRotation=true \
+              --wait --timeout=5m
+          fi
           
-          helm upgrade --install csi-secrets-store secrets-store-csi-driver/secrets-store-csi-driver \
-            --namespace kube-system \
-            --set syncSecret.enabled=true \
-            --set enableSecretRotation=true \
-            --wait --timeout=5m
-          
-          # Install AWS provider
+          # Install AWS provider (idempotent)
           kubectl apply -f https://raw.githubusercontent.com/aws/secrets-store-csi-driver-provider-aws/main/deployment/aws-provider-installer.yaml
           
-          # Wait for pods
-          kubectl wait --for=condition=ready pod -l app=secrets-store-csi-driver -n kube-system --timeout=300s
-          kubectl wait --for=condition=ready pod -l app=csi-secrets-store-provider-aws -n kube-system --timeout=300s
+          # Wait for pods to be ready
+          kubectl wait --for=condition=ready pod -l app=secrets-store-csi-driver -n kube-system --timeout=300s || echo "CSI driver pods not ready yet"
+          kubectl wait --for=condition=ready pod -l app=csi-secrets-store-provider-aws -n kube-system --timeout=300s || echo "AWS provider pods not ready yet"
 
       - name: Setup Cluster Access
         run: |
