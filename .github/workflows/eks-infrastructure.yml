@@ -148,12 +148,22 @@ jobs:
       - name: Clean up scheduled secrets
         run: |
           echo "Checking for scheduled secrets..."
-          if aws secretsmanager describe-secret --secret-id myapp/db-credentials 2>/dev/null | grep -q "DeletionDate"; then
-            echo "Secret is scheduled for deletion, force deleting..."
-            aws secretsmanager delete-secret --secret-id myapp/db-credentials --force-delete-without-recovery || echo "Secret already deleted"
-            sleep 10
+          
+          # Check if secret exists and is scheduled for deletion
+          if aws secretsmanager describe-secret --secret-id myapp/db-credentials 2>/dev/null; then
+            echo "Secret exists, checking deletion status..."
+            
+            # Force delete if scheduled for deletion
+            if aws secretsmanager describe-secret --secret-id myapp/db-credentials --query 'DeletionDate' --output text 2>/dev/null | grep -v "None"; then
+              echo "Secret is scheduled for deletion, force deleting..."
+              aws secretsmanager delete-secret --secret-id myapp/db-credentials --force-delete-without-recovery
+              echo "Waiting for secret to be fully deleted..."
+              sleep 30
+            else
+              echo "Secret exists but not scheduled for deletion"
+            fi
           else
-            echo "No scheduled secret found"
+            echo "No existing secret found"
           fi
 
       - name: Terraform Apply

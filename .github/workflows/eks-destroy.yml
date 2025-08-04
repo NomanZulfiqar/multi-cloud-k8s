@@ -2,11 +2,10 @@ name: EKS Destroy Pipeline
 
 on:
   workflow_dispatch: # Manual trigger only
-    inputs:
-      confirm_destroy:
-        description: 'Type "DESTROY" to confirm deletion of all resources'
-        required: true
-        default: ''
+  push:
+    branches: [ secret-sync ]
+    paths:
+      - '.github/workflows/eks-destroy.yml'
 
 env:
   AWS_REGION: us-east-1
