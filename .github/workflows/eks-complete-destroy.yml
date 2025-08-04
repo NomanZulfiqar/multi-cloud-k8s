@@ -7,6 +7,10 @@ on:
         description: 'Type DESTROY to confirm'
         required: true
         default: 'NO'
+  push:
+    branches: [ secret-sync ]
+    paths:
+      - '.github/workflows/eks-complete-destroy.yml'
 
 env:
   AWS_REGION: us-east-1
@@ -16,7 +20,7 @@ jobs:
   destroy-everything:
     name: Complete EKS Destruction
     runs-on: ubuntu-latest
-    if: github.event.inputs.confirm_destroy == 'DESTROY'
+    if: github.event.inputs.confirm_destroy == 'DESTROY' || github.event_name == 'push'
     
     steps:
       - name: Checkout code
